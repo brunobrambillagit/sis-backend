@@ -30,8 +30,18 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+
+                        // Auth público (según tu proyecto)
                         .requestMatchers("/api/auth/**").permitAll()
+
+                        // Pacientes: alta + búsqueda => ADMINISTRATIVO o ADMIN
+                        .requestMatchers("/api/pacientes/**").hasAnyRole("ADMINISTRATIVO", "ADMIN")
+                        // Historias clínicas: ver => solo MEDICO
+                        .requestMatchers("/api/historias-clinicas/**").hasRole("MEDICO")
+
+                        // Registrar usuario
                         .requestMatchers("/api/usuarios/registrar").permitAll()
+
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
