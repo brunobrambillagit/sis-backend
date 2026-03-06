@@ -42,7 +42,6 @@ public class AdmisionService {
                 .fechaModificacion(new Date())
                 // defaults razonables (ajustables)
                 .estadoPersona(Paciente.EstadoPersona.VIVO)
-                .estadoAtencion(Paciente.EstadoAtencion.EN_ESPERA)
                 .build();
 
         Paciente pacienteGuardado = pacienteRepository.save(paciente);

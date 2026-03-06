@@ -50,9 +50,6 @@ public class Paciente {
     @Enumerated(EnumType.STRING)
     private EstadoPersona estadoPersona;
 
-    @Enumerated(EnumType.STRING)
-    private EstadoAtencion estadoAtencion;
-
     @Temporal(TemporalType.TIMESTAMP)
     private Date fechaAlta;
 
@@ -79,9 +76,5 @@ public class Paciente {
 
     public enum EstadoPersona {
         VIVO, FALLECIDO
-    }
-
-    public enum EstadoAtencion {
-        EN_ATENCION, EN_ESPERA, ALTA
     }
 }
