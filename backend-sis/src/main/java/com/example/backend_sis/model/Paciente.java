@@ -3,6 +3,7 @@ package com.example.backend_sis.model;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.LocalDate;
 import java.util.Date;
 import java.util.List;
 
@@ -39,7 +40,7 @@ public class Paciente {
     private String apellido;
 
     @Temporal(TemporalType.DATE)
-    private Date fechaNacimiento;
+    private LocalDate fechaNacimiento;
 
     private Integer edad;
 

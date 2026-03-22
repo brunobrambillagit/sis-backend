@@ -1,6 +1,7 @@
 package com.example.backend_sis.dto;
 
 import com.example.backend_sis.model.Paciente;
+import java.time.LocalDate;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -22,7 +23,7 @@ public class PacienteUpdateRequest {
     private String apellido;
 
     @JsonFormat(pattern = "yyyy-MM-dd")
-    private Date fechaNacimiento;
+    private LocalDate fechaNacimiento;
 
     private Integer edad;
 

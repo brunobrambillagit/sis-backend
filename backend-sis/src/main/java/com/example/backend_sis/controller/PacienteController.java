@@ -11,7 +11,6 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
-
 import java.util.Date;
 import java.util.List;
 
@@ -87,6 +86,7 @@ public class PacienteController {
     private String normalizarTexto(String valor) {
         return valor == null ? null : valor.trim();
     }
+
 
     private PacienteResponse toResponse(Paciente p) {
         return PacienteResponse.builder()

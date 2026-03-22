@@ -4,6 +4,7 @@ import com.example.backend_sis.model.Paciente;
 import lombok.Builder;
 import lombok.Getter;
 
+import java.time.LocalDate;
 import java.util.Date;
 
 @Getter
@@ -15,7 +16,7 @@ public class PacienteResponse {
     private String apellido;
     private String dni;
     private String nroHistoriaClinica;
-    private Date fechaNacimiento;
+    private LocalDate fechaNacimiento;
     private Integer edad;
     private Paciente.tipoSexo sexo;
     private Paciente.EstadoPersona estadoPersona;
