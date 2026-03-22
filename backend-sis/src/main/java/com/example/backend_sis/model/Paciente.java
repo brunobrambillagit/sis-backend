@@ -42,7 +42,9 @@ public class Paciente {
     private Date fechaNacimiento;
 
     private Integer edad;
-    private String sexo;
+
+    @Enumerated(EnumType.STRING)
+    private tipoSexo sexo;
 
     @Column(unique = true)
     private String nroHistoriaClinica;
@@ -76,5 +78,9 @@ public class Paciente {
 
     public enum EstadoPersona {
         VIVO, FALLECIDO
+    }
+
+    public enum tipoSexo {
+        MASCULINO, FEMENINO
     }
 }
