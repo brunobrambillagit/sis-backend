@@ -6,6 +6,7 @@ import com.example.backend_sis.dto.EpisodioListItemResponse;
 import com.example.backend_sis.model.*;
 import com.example.backend_sis.repository.CamaRepository;
 import com.example.backend_sis.repository.EpisodioRepository;
+import com.example.backend_sis.repository.MovimientoCamaRepository;
 import com.example.backend_sis.repository.PacienteRepository;
 import com.example.backend_sis.repository.UsuarioRepository;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,7 @@ public class EpisodioService {
     private final PacienteRepository pacienteRepository;
     private final UsuarioRepository usuarioRepository;
     private final CamaRepository camaRepository;
+    private final MovimientoCamaRepository movimientoCamaRepository;
 
     private static final List<EstadoAtencion> ESTADOS_ACTIVOS = List.of(
             EstadoAtencion.EN_ESPERA,
@@ -78,7 +80,19 @@ public class EpisodioService {
                 .cama(cama)
                 .build();
 
-        return episodioRepository.save(episodio);
+        Episodio episodioGuardado = episodioRepository.save(episodio);
+
+        if (episodioGuardado.getTipoServicio() == TipoServicio.HOSPITALIZACION && episodioGuardado.getCama() != null) {
+            registrarMovimiento(
+                    episodioGuardado,
+                    null,
+                    episodioGuardado.getCama(),
+                    usuario,
+                    TipoMovimientoCama.INGRESO
+            );
+        }
+
+        return episodioGuardado;
     }
 
     public List<EpisodioListItemResponse> listarActivosPorServicio(TipoServicio tipoServicio) {
@@ -123,6 +137,15 @@ public class EpisodioService {
 
             if (episodio.getTipoServicio() == TipoServicio.HOSPITALIZACION && episodio.getCama() != null) {
                 Cama camaActual = episodio.getCama();
+
+                registrarMovimiento(
+                        episodio,
+                        camaActual,
+                        null,
+                        usuario,
+                        TipoMovimientoCama.ALTA
+                );
+
                 camaActual.setEstado(EstadoCama.DISPONIBLE);
                 camaRepository.save(camaActual);
                 episodio.setCama(null);
@@ -184,7 +207,17 @@ public class EpisodioService {
         }
 
         episodio.setCama(nuevaCama);
-        return episodioRepository.save(episodio);
+        Episodio episodioActualizado = episodioRepository.save(episodio);
+
+        registrarMovimiento(
+                episodioActualizado,
+                camaAnterior,
+                nuevaCama,
+                usuario,
+                TipoMovimientoCama.TRASLADO
+        );
+
+        return episodioActualizado;
     }
 
     private void validarCambioEstado(EstadoAtencion estadoActual, EstadoAtencion nuevoEstado, Usuario usuario) {
@@ -214,5 +247,20 @@ public class EpisodioService {
         if (!transicionValida) {
             throw new RuntimeException("Cambio de estado no permitido");
         }
+    }
+
+    private void registrarMovimiento(Episodio episodio,
+                                     Cama camaOrigen,
+                                     Cama camaDestino,
+                                     Usuario usuario,
+                                     TipoMovimientoCama tipoMovimiento) {
+        MovimientoCama movimiento = new MovimientoCama();
+        movimiento.setEpisodio(episodio);
+        movimiento.setCamaOrigen(camaOrigen);
+        movimiento.setCamaDestino(camaDestino);
+        movimiento.setUsuario(usuario);
+        movimiento.setTipoMovimiento(tipoMovimiento);
+        movimiento.setFechaMovimiento(LocalDateTime.now());
+        movimientoCamaRepository.save(movimiento);
     }
 }
