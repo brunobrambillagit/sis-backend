@@ -10,4 +10,5 @@ public class EpisodioCreateRequest {
     private Long pacienteId;
     private TipoServicio tipoServicio;
     private Long usuarioId;
+    private Long camaId;
 }

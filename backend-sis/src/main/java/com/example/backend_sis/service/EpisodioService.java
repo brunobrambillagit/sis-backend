@@ -3,6 +3,7 @@ package com.example.backend_sis.service;
 import com.example.backend_sis.dto.EpisodioCreateRequest;
 import com.example.backend_sis.dto.EpisodioListItemResponse;
 import com.example.backend_sis.model.*;
+import com.example.backend_sis.repository.CamaRepository;
 import com.example.backend_sis.repository.EpisodioRepository;
 import com.example.backend_sis.repository.PacienteRepository;
 import com.example.backend_sis.repository.UsuarioRepository;
@@ -19,6 +20,7 @@ public class EpisodioService {
     private final EpisodioRepository episodioRepository;
     private final PacienteRepository pacienteRepository;
     private final UsuarioRepository usuarioRepository;
+    private final CamaRepository camaRepository;
 
     private static final List<EstadoAtencion> ESTADOS_ACTIVOS = List.of(
             EstadoAtencion.EN_ESPERA,
@@ -42,9 +44,31 @@ public class EpisodioService {
             throw new RuntimeException("El paciente ya tiene un episodio activo");
         }
 
+        Cama cama = null;
+        if (request.getTipoServicio() == TipoServicio.HOSPITALIZACION) {
+            if (request.getCamaId() == null) {
+                throw new RuntimeException("Debe seleccionar una cama para Hospitalización");
+            }
+
+            cama = camaRepository.findById(request.getCamaId())
+                    .orElseThrow(() -> new RuntimeException("Cama no encontrada"));
+
+            if (cama.getTipoServicio() != TipoServicio.HOSPITALIZACION) {
+                throw new RuntimeException("La cama no pertenece a Hospitalización");
+            }
+
+            if (cama.getEstado() != EstadoCama.DISPONIBLE) {
+                throw new RuntimeException("La cama seleccionada no está disponible");
+            }
+
+            cama.setEstado(EstadoCama.OCUPADA);
+            camaRepository.save(cama);
+        }
+
         Episodio episodio = Episodio.builder()
                 .paciente(paciente)
                 .usuario(usuario)
+                .cama(cama)
                 .tipoServicio(request.getTipoServicio())
                 .estadoAtencion(EstadoAtencion.EN_ESPERA)
                 .fechaIngreso(LocalDateTime.now())
@@ -67,6 +91,8 @@ public class EpisodioService {
                         .tipoServicio(episodio.getTipoServicio())
                         .estadoAtencion(episodio.getEstadoAtencion())
                         .fechaIngreso(episodio.getFechaIngreso())
+                        .camaId(episodio.getCama() != null ? episodio.getCama().getId() : null)
+                        .camaCodigo(episodio.getCama() != null ? episodio.getCama().getCodigo() : null)
                         .build())
                 .toList();
     }
@@ -90,6 +116,12 @@ public class EpisodioService {
 
         if (nuevoEstado == EstadoAtencion.ALTA) {
             episodio.setFechaEgreso(LocalDateTime.now());
+
+            if (episodio.getTipoServicio() == TipoServicio.HOSPITALIZACION && episodio.getCama() != null) {
+                Cama cama = episodio.getCama();
+                cama.setEstado(EstadoCama.DISPONIBLE);
+                camaRepository.save(cama);
+            }
         } else {
             episodio.setFechaEgreso(null);
         }

@@ -1,6 +1,8 @@
 package com.example.backend_sis.model;
+
 import jakarta.persistence.*;
 import lombok.*;
+
 import java.time.LocalDateTime;
 
 @Entity
@@ -16,15 +18,17 @@ public class Episodio {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // FK a paciente
     @ManyToOne(optional = false)
     @JoinColumn(name = "paciente_id", nullable = false)
     private Paciente paciente;
 
-    // Usuario que admisiona (administrativo). Si todavía no lo usás, puede quedar nullable.
     @ManyToOne
     @JoinColumn(name = "usuario_id")
     private Usuario usuario;
+
+    @ManyToOne
+    @JoinColumn(name = "cama_id")
+    private Cama cama;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "tipo_servicio", nullable = false, length = 20)
@@ -46,7 +50,7 @@ public class Episodio {
             fechaIngreso = LocalDateTime.now();
         }
         if (estadoAtencion == null) {
-            estadoAtencion = EstadoAtencion.EN_ESPERA; // al crear episodio: EN_ESPERA
+            estadoAtencion = EstadoAtencion.EN_ESPERA;
         }
     }
 }

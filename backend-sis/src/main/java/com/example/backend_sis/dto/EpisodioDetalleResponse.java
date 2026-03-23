@@ -23,6 +23,9 @@ public class EpisodioDetalleResponse {
     private String apellido;
     private String nroHistoriaClinica;
 
+    private Long camaId;
+    private String camaCodigo;
+
     private String observacionesHistoriaClinica;
 
     private List<ObservacionEpisodioResponse> observaciones;

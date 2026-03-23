@@ -67,6 +67,8 @@ public class EpisodioDetalleService {
                 .nombre(episodio.getPaciente().getNombre())
                 .apellido(episodio.getPaciente().getApellido())
                 .nroHistoriaClinica(episodio.getPaciente().getNroHistoriaClinica())
+                .camaId(episodio.getCama() != null ? episodio.getCama().getId() : null)
+                .camaCodigo(episodio.getCama() != null ? episodio.getCama().getCodigo() : null)
                 .observacionesHistoriaClinica(observacionesHC)
                 .observaciones(observaciones)
                 .evoluciones(evoluciones)

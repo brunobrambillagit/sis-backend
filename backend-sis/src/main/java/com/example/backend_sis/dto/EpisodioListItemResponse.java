@@ -20,4 +20,6 @@ public class EpisodioListItemResponse {
     private TipoServicio tipoServicio;
     private EstadoAtencion estadoAtencion;
     private LocalDateTime fechaIngreso;
+    private Long camaId;
+    private String camaCodigo;
 }
