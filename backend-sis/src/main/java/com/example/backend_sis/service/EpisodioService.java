@@ -1,5 +1,6 @@
 package com.example.backend_sis.service;
 
+import com.example.backend_sis.dto.EpisodioCambioCamaRequest;
 import com.example.backend_sis.dto.EpisodioCreateRequest;
 import com.example.backend_sis.dto.EpisodioListItemResponse;
 import com.example.backend_sis.model.*;
@@ -9,6 +10,7 @@ import com.example.backend_sis.repository.PacienteRepository;
 import com.example.backend_sis.repository.UsuarioRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -28,6 +30,7 @@ public class EpisodioService {
             EstadoAtencion.FINALIZADO
     );
 
+    @Transactional
     public Episodio crearEpisodio(EpisodioCreateRequest request) {
         Paciente paciente = pacienteRepository.findById(request.getPacienteId())
                 .orElseThrow(() -> new RuntimeException("Paciente no encontrado"));
@@ -47,14 +50,14 @@ public class EpisodioService {
         Cama cama = null;
         if (request.getTipoServicio() == TipoServicio.HOSPITALIZACION) {
             if (request.getCamaId() == null) {
-                throw new RuntimeException("Debe seleccionar una cama para Hospitalización");
+                throw new RuntimeException("Debe seleccionar una cama para hospitalización");
             }
 
             cama = camaRepository.findById(request.getCamaId())
                     .orElseThrow(() -> new RuntimeException("Cama no encontrada"));
 
             if (cama.getTipoServicio() != TipoServicio.HOSPITALIZACION) {
-                throw new RuntimeException("La cama no pertenece a Hospitalización");
+                throw new RuntimeException("La cama seleccionada no pertenece a hospitalización");
             }
 
             if (cama.getEstado() != EstadoCama.DISPONIBLE) {
@@ -68,11 +71,11 @@ public class EpisodioService {
         Episodio episodio = Episodio.builder()
                 .paciente(paciente)
                 .usuario(usuario)
-                .cama(cama)
                 .tipoServicio(request.getTipoServicio())
                 .estadoAtencion(EstadoAtencion.EN_ESPERA)
                 .fechaIngreso(LocalDateTime.now())
                 .fechaEgreso(null)
+                .cama(cama)
                 .build();
 
         return episodioRepository.save(episodio);
@@ -97,6 +100,7 @@ public class EpisodioService {
                 .toList();
     }
 
+    @Transactional
     public Episodio cambiarEstado(Long episodioId, EstadoAtencion nuevoEstado, Long usuarioId) {
         Episodio episodio = episodioRepository.findById(episodioId)
                 .orElseThrow(() -> new RuntimeException("Episodio no encontrado"));
@@ -118,14 +122,68 @@ public class EpisodioService {
             episodio.setFechaEgreso(LocalDateTime.now());
 
             if (episodio.getTipoServicio() == TipoServicio.HOSPITALIZACION && episodio.getCama() != null) {
-                Cama cama = episodio.getCama();
-                cama.setEstado(EstadoCama.DISPONIBLE);
-                camaRepository.save(cama);
+                Cama camaActual = episodio.getCama();
+                camaActual.setEstado(EstadoCama.DISPONIBLE);
+                camaRepository.save(camaActual);
+                episodio.setCama(null);
             }
         } else {
             episodio.setFechaEgreso(null);
         }
 
+        return episodioRepository.save(episodio);
+    }
+
+    @Transactional
+    public Episodio cambiarCama(Long episodioId, EpisodioCambioCamaRequest request) {
+        if (request.getNuevaCamaId() == null) {
+            throw new RuntimeException("Debe seleccionar una nueva cama");
+        }
+
+        Episodio episodio = episodioRepository.findById(episodioId)
+                .orElseThrow(() -> new RuntimeException("Episodio no encontrado"));
+
+        if (episodio.getTipoServicio() != TipoServicio.HOSPITALIZACION) {
+            throw new RuntimeException("Solo se puede cambiar cama en episodios de hospitalización");
+        }
+
+        if (!ESTADOS_ACTIVOS.contains(episodio.getEstadoAtencion())) {
+            throw new RuntimeException("Solo se puede cambiar cama en episodios activos");
+        }
+
+        Usuario usuario = usuarioRepository.findById(request.getUsuarioId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        if (usuario.getRol() != Usuario.Rol.ADMINISTRATIVO && usuario.getRol() != Usuario.Rol.MEDICO) {
+            throw new RuntimeException("El usuario no tiene permisos para cambiar la cama");
+        }
+
+        Cama nuevaCama = camaRepository.findById(request.getNuevaCamaId())
+                .orElseThrow(() -> new RuntimeException("La nueva cama no existe"));
+
+        if (nuevaCama.getTipoServicio() != TipoServicio.HOSPITALIZACION) {
+            throw new RuntimeException("La cama seleccionada no pertenece a hospitalización");
+        }
+
+        if (nuevaCama.getEstado() != EstadoCama.DISPONIBLE) {
+            throw new RuntimeException("La cama seleccionada no está disponible");
+        }
+
+        Cama camaAnterior = episodio.getCama();
+
+        if (camaAnterior != null && camaAnterior.getId().equals(nuevaCama.getId())) {
+            throw new RuntimeException("El paciente ya se encuentra en esa cama");
+        }
+
+        nuevaCama.setEstado(EstadoCama.OCUPADA);
+        camaRepository.save(nuevaCama);
+
+        if (camaAnterior != null) {
+            camaAnterior.setEstado(EstadoCama.DISPONIBLE);
+            camaRepository.save(camaAnterior);
+        }
+
+        episodio.setCama(nuevaCama);
         return episodioRepository.save(episodio);
     }
 
@@ -154,7 +212,7 @@ public class EpisodioService {
                         || (estadoActual == EstadoAtencion.FINALIZADO && nuevoEstado == EstadoAtencion.EN_ATENCION);
 
         if (!transicionValida) {
-            throw new RuntimeException("Transición no permitida: " + estadoActual + " -> " + nuevoEstado);
+            throw new RuntimeException("Cambio de estado no permitido");
         }
     }
 }

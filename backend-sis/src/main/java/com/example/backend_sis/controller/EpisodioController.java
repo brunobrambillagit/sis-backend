@@ -1,5 +1,6 @@
 package com.example.backend_sis.controller;
 
+import com.example.backend_sis.dto.EpisodioCambioCamaRequest;
 import com.example.backend_sis.dto.EpisodioCreateRequest;
 import com.example.backend_sis.dto.EpisodioListItemResponse;
 import com.example.backend_sis.dto.EpisodioUpdateEstadoRequest;
@@ -43,5 +44,13 @@ public class EpisodioController {
         return ResponseEntity.ok(
                 episodioService.cambiarEstado(id, nuevoEstado, usuarioId)
         );
+    }
+
+    @PatchMapping("/{id}/cama")
+    public ResponseEntity<Episodio> cambiarCama(
+            @PathVariable Long id,
+            @RequestBody EpisodioCambioCamaRequest request
+    ) {
+        return ResponseEntity.ok(episodioService.cambiarCama(id, request));
     }
 }
