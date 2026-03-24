@@ -46,9 +46,10 @@ public class TurnoController {
 
     @GetMapping("/dia")
     public ResponseEntity<List<TurnoListItemResponse>> listarTurnosDelDiaAdmin(
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fecha
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fecha,
+            @RequestParam(required = false) EstadoTurno estado
     ) {
-        return ResponseEntity.ok(turnoService.listarTurnosDelDiaAdmin(fecha));
+        return ResponseEntity.ok(turnoService.listarTurnosDelDiaAdmin(fecha, estado));
     }
 
     @GetMapping("/filtrar")

@@ -173,11 +173,24 @@ public class TurnoService {
         return mapTurno(turnoRepository.save(turnoDestino));
     }
 
-    public List<TurnoListItemResponse> listarTurnosDelDiaAdmin(LocalDate fecha) {
+    public List<TurnoListItemResponse> listarTurnosDelDiaAdmin(LocalDate fecha, EstadoTurno estado) {
         LocalDate fechaConsulta = fecha != null ? fecha : LocalDate.now();
 
-        return turnoRepository.findByFechaAndEstadoTurnoInOrderByHoraDesdeAsc(fechaConsulta, ESTADOS_VISIBLES_ADMIN)
-                .stream()
+        List<Turno> turnos;
+
+        if (estado != null) {
+            turnos = turnoRepository.findByFechaAndEstadoTurnoInOrderByHoraDesdeAsc(
+                    fechaConsulta,
+                    Set.of(estado)
+            );
+        } else {
+            turnos = turnoRepository.findByFechaAndEstadoTurnoInOrderByHoraDesdeAsc(
+                    fechaConsulta,
+                    ESTADOS_VISIBLES_ADMIN
+            );
+        }
+
+        return turnos.stream()
                 .map(this::mapTurno)
                 .toList();
     }
@@ -188,14 +201,23 @@ public class TurnoService {
         }
 
         LocalDate fechaConsulta = fecha != null ? fecha : LocalDate.now();
-        EstadoTurno estadoConsulta = estado != null ? estado : EstadoTurno.DISPONIBLE;
 
-        return turnoRepository.findByAgenda_IdAndFechaAndEstadoTurnoOrderByHoraDesdeAsc(
-                        agendaId,
-                        fechaConsulta,
-                        estadoConsulta
-                )
-                .stream()
+        List<Turno> turnos;
+
+        if (estado != null) {
+            turnos = turnoRepository.findByAgenda_IdAndFechaAndEstadoTurnoOrderByHoraDesdeAsc(
+                    agendaId,
+                    fechaConsulta,
+                    estado
+            );
+        } else {
+            turnos = turnoRepository.findByAgenda_IdAndFechaOrderByHoraDesdeAsc(
+                    agendaId,
+                    fechaConsulta
+            );
+        }
+
+        return turnos.stream()
                 .map(this::mapTurno)
                 .toList();
     }
