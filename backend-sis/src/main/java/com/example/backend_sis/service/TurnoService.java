@@ -302,6 +302,17 @@ public class TurnoService {
     }
 
     private TurnoComprobanteResponse mapComprobante(Turno turno) {
+        List<String> medicosAgenda = turno.getAgenda().getPermisosMedicos()
+                .stream()
+                .filter(permiso -> Boolean.TRUE.equals(permiso.getActivo()))
+                .map(permiso -> {
+                    Usuario medico = permiso.getUsuario();
+                    String nombre = medico.getNombre() != null ? medico.getNombre() : "";
+                    String apellido = medico.getApellido() != null ? medico.getApellido() : "";
+                    return (apellido + ", " + nombre).trim().replaceAll("^,\\s*", "");
+                })
+                .toList();
+
         return TurnoComprobanteResponse.builder()
                 .turnoId(turno.getId())
                 .agendaNombre(turno.getAgenda().getNombre())
@@ -312,6 +323,7 @@ public class TurnoService {
                 .pacienteDni(turno.getPaciente().getDni())
                 .pacienteNombreCompleto(turno.getPaciente().getApellido() + ", " + turno.getPaciente().getNombre())
                 .observacion(turno.getObservacion())
+                .medicosAgenda(medicosAgenda)
                 .build();
     }
 }
