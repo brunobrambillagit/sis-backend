@@ -26,4 +26,13 @@ public class UsuarioController {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
     }
+
+    @GetMapping("/medicos")
+    public ResponseEntity<?> listarMedicos() {
+        try {
+            return ResponseEntity.ok(usuarioService.listarMedicos());
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
 }

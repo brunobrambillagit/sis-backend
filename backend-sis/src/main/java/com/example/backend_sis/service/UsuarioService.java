@@ -1,10 +1,13 @@
 package com.example.backend_sis.service;
 
+import com.example.backend_sis.dto.UsuarioMedicoOptionResponse;
 import com.example.backend_sis.dto.UsuarioRequest;
 import com.example.backend_sis.model.Usuario;
 import com.example.backend_sis.repository.UsuarioRepository;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+
+import java.util.List;
 
 @Service
 public class UsuarioService {
@@ -18,7 +21,6 @@ public class UsuarioService {
 
     public Usuario registrarUsuario(UsuarioRequest request) {
 
-        // Validaciones
         if (usuarioRepository.findByCuit(request.cuit).isPresent()) {
             throw new RuntimeException("CUIT ya existente");
         }
@@ -33,10 +35,20 @@ public class UsuarioService {
         usuario.setCuit(request.cuit);
         usuario.setEmail(request.email);
         usuario.setRol(Usuario.Rol.valueOf(request.rol.toUpperCase()));
-
-        // Encriptación segura
         usuario.setPassword(passwordEncoder.encode(request.password));
 
         return usuarioRepository.save(usuario);
+    }
+
+    public List<UsuarioMedicoOptionResponse> listarMedicos() {
+        return usuarioRepository.findByRol(Usuario.Rol.MEDICO)
+                .stream()
+                .map(u -> UsuarioMedicoOptionResponse.builder()
+                        .id(u.getId())
+                        .nombreCompleto((u.getNombre() == null ? "" : u.getNombre()) +
+                                (u.getApellido() == null ? "" : " " + u.getApellido()))
+                        .email(u.getEmail())
+                        .build())
+                .toList();
     }
 }

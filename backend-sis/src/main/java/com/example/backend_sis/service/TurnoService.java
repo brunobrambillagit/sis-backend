@@ -20,6 +20,7 @@ import java.util.Set;
 public class TurnoService {
 
     private static final Set<EstadoTurno> ESTADOS_VISIBLES_ADMIN = Set.of(
+            EstadoTurno.DISPONIBLE,
             EstadoTurno.CITADO,
             EstadoTurno.EN_ESPERA,
             EstadoTurno.EN_ATENCION,
