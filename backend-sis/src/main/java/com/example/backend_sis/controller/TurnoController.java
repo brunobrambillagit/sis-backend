@@ -67,4 +67,11 @@ public class TurnoController {
     ) {
         return ResponseEntity.ok(turnoService.listarTurnosDelDiaMedico(usuarioId, fecha));
     }
+
+    @GetMapping("/{turnoId}/comprobante")
+    public ResponseEntity<TurnoComprobanteResponse> obtenerComprobante(
+            @PathVariable Long turnoId
+    ) {
+        return ResponseEntity.ok(turnoService.obtenerComprobante(turnoId));
+    }
 }

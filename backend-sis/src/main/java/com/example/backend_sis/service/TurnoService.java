@@ -64,6 +64,7 @@ public class TurnoService {
         return mapComprobante(guardado);
     }
 
+
     @Transactional
     public TurnoListItemResponse cambiarEstado(Long turnoId, EstadoTurno nuevoEstado, Long usuarioId) {
         Turno turno = turnoRepository.findById(turnoId)
@@ -105,6 +106,18 @@ public class TurnoService {
 
         turno.setEstadoTurno(nuevoEstado);
         return mapTurno(turnoRepository.save(turno));
+    }
+
+    @Transactional(readOnly = true)
+    public TurnoComprobanteResponse obtenerComprobante(Long turnoId) {
+        Turno turno = turnoRepository.findById(turnoId)
+                .orElseThrow(() -> new RuntimeException("Turno no encontrado"));
+
+        if (turno.getPaciente() == null) {
+            throw new RuntimeException("El turno no tiene un paciente asignado");
+        }
+
+        return mapComprobante(turno);
     }
 
     @Transactional
