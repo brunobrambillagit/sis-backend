@@ -281,6 +281,17 @@ public class TurnoService {
     }
 
     private TurnoListItemResponse mapTurno(Turno turno) {
+        List<String> medicosAgenda = turno.getAgenda().getPermisosMedicos()
+                .stream()
+                .filter(permiso -> Boolean.TRUE.equals(permiso.getActivo()))
+                .map(permiso -> {
+                    Usuario medico = permiso.getUsuario();
+                    String nombre = medico.getNombre() != null ? medico.getNombre() : "";
+                    String apellido = medico.getApellido() != null ? medico.getApellido() : "";
+                    return (apellido + ", " + nombre).trim().replaceAll("^,\\s*", "");
+                })
+                .toList();
+
         return TurnoListItemResponse.builder()
                 .turnoId(turno.getId())
                 .agendaId(turno.getAgenda().getId())
@@ -298,6 +309,7 @@ public class TurnoService {
                 .fechaReserva(turno.getFechaReserva())
                 .fechaLlegada(turno.getFechaLlegada())
                 .observacion(turno.getObservacion())
+                .medicosAgenda(medicosAgenda)
                 .build();
     }
 

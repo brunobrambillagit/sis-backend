@@ -8,6 +8,7 @@ import lombok.Setter;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.List;
 
 @Getter
 @Setter
@@ -28,5 +29,6 @@ public class TurnoListItemResponse {
     private Long episodioId;
     private LocalDateTime fechaReserva;
     private LocalDateTime fechaLlegada;
+    private List<String> medicosAgenda;
     private String observacion;
 }
