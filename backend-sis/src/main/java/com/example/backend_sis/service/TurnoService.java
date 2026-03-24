@@ -104,6 +104,26 @@ public class TurnoService {
             return mapTurno(turnoRepository.save(turno));
         }
 
+        if (nuevoEstado == EstadoTurno.CANCELADO) {
+            turno.setEstadoTurno(EstadoTurno.CANCELADO);
+            turno.setPaciente(null);
+            turno.setFechaReserva(null);
+            turno.setObservacion("Turno cancelado");
+            turnoRepository.save(turno);
+
+            Turno reemplazoLibre = Turno.builder()
+                    .agenda(turno.getAgenda())
+                    .fecha(turno.getFecha())
+                    .horaDesde(turno.getHoraDesde())
+                    .horaHasta(turno.getHoraHasta())
+                    .estadoTurno(EstadoTurno.DISPONIBLE)
+                    .build();
+
+            turnoRepository.save(reemplazoLibre);
+
+            return mapTurno(turno);
+        }
+
         turno.setEstadoTurno(nuevoEstado);
         return mapTurno(turnoRepository.save(turno));
     }
