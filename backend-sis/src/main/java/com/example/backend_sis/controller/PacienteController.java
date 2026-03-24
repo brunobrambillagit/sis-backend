@@ -60,6 +60,7 @@ public class PacienteController {
         paciente.setApellido(normalizarTexto(req.getApellido()));
         paciente.setFechaNacimiento(req.getFechaNacimiento());
         paciente.setEdad(req.getEdad());
+        paciente.setEstadoPersona(req.getEstadoPersona());
         paciente.setSexo(req.getSexo());
         paciente.setFechaModificacion(new Date());
 
@@ -96,6 +97,7 @@ public class PacienteController {
                 .nroHistoriaClinica(p.getNroHistoriaClinica())
                 .fechaNacimiento(p.getFechaNacimiento())
                 .edad(p.getEdad())
+                .estadoPersona(p.getEstadoPersona())
                 .sexo(p.getSexo())
                 .fechaAlta(p.getFechaAlta())
                 .fechaModificacion(p.getFechaModificacion())

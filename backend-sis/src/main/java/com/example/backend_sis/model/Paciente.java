@@ -47,6 +47,9 @@ public class Paciente {
     @Enumerated(EnumType.STRING)
     private tipoSexo sexo;
 
+    @Enumerated(EnumType.STRING)
+    private EstadoPersona estadoPersona;
+
     @Column(unique = true)
     private String nroHistoriaClinica;
 
