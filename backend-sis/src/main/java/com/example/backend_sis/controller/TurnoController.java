@@ -51,6 +51,15 @@ public class TurnoController {
         return ResponseEntity.ok(turnoService.listarTurnosDelDiaAdmin(fecha));
     }
 
+    @GetMapping("/filtrar")
+    public ResponseEntity<List<TurnoListItemResponse>> listarTurnosFiltradosAdmin(
+            @RequestParam Long agendaId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fecha,
+            @RequestParam(required = false) EstadoTurno estado
+    ) {
+        return ResponseEntity.ok(turnoService.listarTurnosFiltradosAdmin(agendaId, fecha, estado));
+    }
+
     @GetMapping("/medico/{usuarioId}")
     public ResponseEntity<List<TurnoListItemResponse>> listarTurnosDelDiaMedico(
             @PathVariable Long usuarioId,

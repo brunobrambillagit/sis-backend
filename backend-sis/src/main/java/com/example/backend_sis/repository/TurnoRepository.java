@@ -21,6 +21,8 @@ public interface TurnoRepository extends JpaRepository<Turno, Long> {
 
     List<Turno> findByFechaAndEstadoTurnoInOrderByHoraDesdeAsc(LocalDate fecha, Collection<EstadoTurno> estados);
 
+    List<Turno> findByAgenda_IdAndFechaAndEstadoTurnoOrderByHoraDesdeAsc(Long agendaId, LocalDate fecha, EstadoTurno estadoTurno);
+
     @Query("""
             select t
             from Turno t

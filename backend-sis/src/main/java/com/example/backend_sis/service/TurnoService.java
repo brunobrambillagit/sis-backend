@@ -169,6 +169,24 @@ public class TurnoService {
                 .toList();
     }
 
+    public List<TurnoListItemResponse> listarTurnosFiltradosAdmin(Long agendaId, LocalDate fecha, EstadoTurno estado) {
+        if (agendaId == null) {
+            throw new RuntimeException("Debés informar la agenda");
+        }
+
+        LocalDate fechaConsulta = fecha != null ? fecha : LocalDate.now();
+        EstadoTurno estadoConsulta = estado != null ? estado : EstadoTurno.DISPONIBLE;
+
+        return turnoRepository.findByAgenda_IdAndFechaAndEstadoTurnoOrderByHoraDesdeAsc(
+                        agendaId,
+                        fechaConsulta,
+                        estadoConsulta
+                )
+                .stream()
+                .map(this::mapTurno)
+                .toList();
+    }
+
     public List<TurnoListItemResponse> listarTurnosDelDiaMedico(Long usuarioId, LocalDate fecha) {
         Usuario usuario = usuarioRepository.findById(usuarioId)
                 .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
