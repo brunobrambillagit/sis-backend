@@ -61,7 +61,6 @@ public class PacienteController {
         paciente.setFechaNacimiento(req.getFechaNacimiento());
         paciente.setEdad(req.getEdad());
         paciente.setSexo(req.getSexo());
-        paciente.setEstadoPersona(req.getEstadoPersona());
         paciente.setFechaModificacion(new Date());
 
         Paciente actualizado = pacienteRepository.save(paciente);
@@ -98,7 +97,6 @@ public class PacienteController {
                 .fechaNacimiento(p.getFechaNacimiento())
                 .edad(p.getEdad())
                 .sexo(p.getSexo())
-                .estadoPersona(p.getEstadoPersona())
                 .fechaAlta(p.getFechaAlta())
                 .fechaModificacion(p.getFechaModificacion())
                 .build();

@@ -39,17 +39,22 @@ public class SecurityConfig {
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-
-                        // Auth público (según tu proyecto)
                         .requestMatchers("/api/auth/**").permitAll()
+                        .requestMatchers("/api/usuarios/registrar").permitAll()
 
-                        // Pacientes: alta + búsqueda => ADMINISTRATIVO o ADMIN
-                        .requestMatchers("/api/pacientes/**").hasAnyRole("ADMINISTRATIVO", "ADMIN")
-                        // Historias clínicas: ver => solo MEDICO
                         .requestMatchers("/api/historias-clinicas/**").hasRole("MEDICO")
 
-                        // Registrar usuario
-                        .requestMatchers("/api/usuarios/registrar").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/agendas/**").hasAnyRole("ADMINISTRATIVO", "ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/agendas/**").hasAnyRole("ADMINISTRATIVO", "MEDICO", "ADMIN")
+
+                        .requestMatchers(HttpMethod.GET, "/api/turnos/dia").hasAnyRole("ADMINISTRATIVO", "ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/turnos/medico/**").hasRole("MEDICO")
+                        .requestMatchers(HttpMethod.PATCH, "/api/turnos/*/asignar-paciente").hasAnyRole("ADMINISTRATIVO", "ADMIN")
+                        .requestMatchers(HttpMethod.PATCH, "/api/turnos/*/estado").hasAnyRole("ADMINISTRATIVO", "MEDICO", "ADMIN")
+                        .requestMatchers(HttpMethod.PATCH, "/api/turnos/*/reprogramar").hasAnyRole("ADMINISTRATIVO", "ADMIN")
+
+                        .requestMatchers("/api/pacientes/**").hasAnyRole("ADMINISTRATIVO", "ADMIN")
+                        .requestMatchers("/api/episodios/**").authenticated()
 
                         .anyRequest().authenticated()
                 )
@@ -59,13 +64,11 @@ public class SecurityConfig {
     }
 
     @Bean
-    // (Cross-Origin Resource Sharing), es HTTP
     CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOrigins(List.of("http://localhost:5173"));
-        config.setAllowedMethods(List.of("GET","POST","PUT","DELETE","OPTIONS", "PATCH"));
-        config.setAllowedHeaders(List.of("Authorization","Content-Type"));
-        // config.setAllowCredentials(true); // solo si usás cookies
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
+        config.setAllowedHeaders(List.of("Authorization", "Content-Type"));
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
         return source;

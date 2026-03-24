@@ -95,6 +95,40 @@ public class EpisodioService {
         return episodioGuardado;
     }
 
+    @Transactional
+    public Episodio crearEpisodioConsultoriosDesdeTurno(Long pacienteId, Long usuarioId) {
+        Paciente paciente = pacienteRepository.findById(pacienteId)
+                .orElseThrow(() -> new RuntimeException("Paciente no encontrado"));
+
+        Usuario usuario = usuarioRepository.findById(usuarioId)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        if (usuario.getRol() != Usuario.Rol.ADMINISTRATIVO) {
+            throw new RuntimeException("Solo un ADMINISTRATIVO puede registrar la llegada del paciente");
+        }
+
+        boolean yaTieneActivo = episodioRepository.existsByPaciente_IdAndEstadoAtencionIn(
+                paciente.getId(),
+                ESTADOS_ACTIVOS
+        );
+
+        if (yaTieneActivo) {
+            throw new RuntimeException("El paciente ya tiene un episodio activo");
+        }
+
+        Episodio episodio = Episodio.builder()
+                .paciente(paciente)
+                .usuario(usuario)
+                .tipoServicio(TipoServicio.CONSULTORIOS)
+                .estadoAtencion(EstadoAtencion.EN_ESPERA)
+                .fechaIngreso(LocalDateTime.now())
+                .fechaEgreso(null)
+                .cama(null)
+                .build();
+
+        return episodioRepository.save(episodio);
+    }
+
     public List<EpisodioListItemResponse> listarActivosPorServicio(TipoServicio tipoServicio) {
         return episodioRepository
                 .findByTipoServicioAndEstadoAtencionInOrderByFechaIngresoDesc(tipoServicio, ESTADOS_ACTIVOS)

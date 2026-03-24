@@ -50,9 +50,6 @@ public class Paciente {
     @Column(unique = true)
     private String nroHistoriaClinica;
 
-    @Enumerated(EnumType.STRING)
-    private EstadoPersona estadoPersona;
-
     @Temporal(TemporalType.TIMESTAMP)
     private Date fechaAlta;
 

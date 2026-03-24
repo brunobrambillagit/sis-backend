@@ -41,7 +41,6 @@ public class AdmisionService {
                 .fechaAlta(new Date())
                 .fechaModificacion(new Date())
                 // defaults razonables (ajustables)
-                .estadoPersona(Paciente.EstadoPersona.VIVO)
                 .build();
 
         Paciente pacienteGuardado = pacienteRepository.save(paciente);
