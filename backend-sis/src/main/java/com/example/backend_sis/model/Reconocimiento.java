@@ -4,77 +4,69 @@ import jakarta.persistence.*;
 import java.util.Date;
 
 @Entity
-@Table(name = "reconocimiento")
+@Table(
+        name = "reconocimiento",
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uk_reconocimiento_face_id", columnNames = "referenciaBiometrica")
+        }
+)
 public class Reconocimiento {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // Atributos basados en el Diagrama de Clases (Reconocimiento/Biometria)
-
-    // Aquí se guardará la plantilla (el "hash") de la huella o el ID de AWS Rekognition para el rostro.
-    // Usamos LOB (Large Object) para guardar datos binarios grandes.
-    @Lob
-    @Column(nullable = false)
-    private byte[] hashBiometria; // hashBiometria
+    @Column(nullable = false, length = 255)
+    private String referenciaBiometrica;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
-    private TipoBiometria tipoBiometria; // tipoBiometria: Reconocimiento (Huella o Rostro)
+    @Column(nullable = false, length = 50)
+    private TipoBiometria tipoBiometria;
+
+    @Column(length = 255)
+    private String proveedor;
+
+    @Column(length = 255)
+    private String collectionId;
+
+    @Column(length = 255)
+    private String externalImageId;
+
+    @Column(length = 255)
+    private String s3Bucket;
+
+    @Column(length = 500)
+    private String s3Key;
 
     @Temporal(TemporalType.TIMESTAMP)
     @Column(nullable = false)
-    private Date fechaCaptura; // fechaCaptura
+    private Date fechaCaptura;
 
     @Temporal(TemporalType.TIMESTAMP)
-    private Date fechaVinculoPaciente; // fechaVinculoPaciente
+    private Date fechaVinculoPaciente;
 
-    // Relación con Paciente. Cardinalidad * a 1
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "paciente_id", nullable = false)
     private Paciente paciente;
 
-    // Enumeración del tipo de Biometría
     public enum TipoBiometria {
-        HUELLA_DACTILAR, ROSTRO
+        HUELLA_DACTILAR,
+        ROSTRO
     }
 
-    // ------------------------------------
-    // 1. CONSTRUCTORES
-    // ------------------------------------
-
-    // Constructor vacío (necesario para JPA/Hibernate)
     public Reconocimiento() {
     }
-
-    // Constructor con todos los atributos (excepto 'id' que es generado)
-    public Reconocimiento(byte[] hashBiometria, TipoBiometria tipoBiometria, Date fechaCaptura, Date fechaVinculoPaciente, Paciente paciente) {
-        this.hashBiometria = hashBiometria;
-        this.tipoBiometria = tipoBiometria;
-        this.fechaCaptura = fechaCaptura;
-        this.fechaVinculoPaciente = fechaVinculoPaciente;
-        this.paciente = paciente;
-    }
-
-    // ------------------------------------
-    // 2. GETTERS Y SETTERS
-    // ------------------------------------
 
     public Long getId() {
         return id;
     }
 
-    public void setId(Long id) {
-        this.id = id;
+    public String getReferenciaBiometrica() {
+        return referenciaBiometrica;
     }
 
-    public byte[] getHashBiometria() {
-        return hashBiometria;
-    }
-
-    public void setHashBiometria(byte[] hashBiometria) {
-        this.hashBiometria = hashBiometria;
+    public void setReferenciaBiometrica(String referenciaBiometrica) {
+        this.referenciaBiometrica = referenciaBiometrica;
     }
 
     public TipoBiometria getTipoBiometria() {
@@ -83,6 +75,46 @@ public class Reconocimiento {
 
     public void setTipoBiometria(TipoBiometria tipoBiometria) {
         this.tipoBiometria = tipoBiometria;
+    }
+
+    public String getProveedor() {
+        return proveedor;
+    }
+
+    public void setProveedor(String proveedor) {
+        this.proveedor = proveedor;
+    }
+
+    public String getCollectionId() {
+        return collectionId;
+    }
+
+    public void setCollectionId(String collectionId) {
+        this.collectionId = collectionId;
+    }
+
+    public String getExternalImageId() {
+        return externalImageId;
+    }
+
+    public void setExternalImageId(String externalImageId) {
+        this.externalImageId = externalImageId;
+    }
+
+    public String getS3Bucket() {
+        return s3Bucket;
+    }
+
+    public void setS3Bucket(String s3Bucket) {
+        this.s3Bucket = s3Bucket;
+    }
+
+    public String getS3Key() {
+        return s3Key;
+    }
+
+    public void setS3Key(String s3Key) {
+        this.s3Key = s3Key;
     }
 
     public Date getFechaCaptura() {
@@ -108,13 +140,4 @@ public class Reconocimiento {
     public void setPaciente(Paciente paciente) {
         this.paciente = paciente;
     }
-
-    // ------------------------------------
-    // 3. ENUM (Mantenido)
-    // ------------------------------------
-    /*
-    public enum TipoBiometria {
-        HUELLA_DACTILAR, ROSTRO
-    }
-    */
 }

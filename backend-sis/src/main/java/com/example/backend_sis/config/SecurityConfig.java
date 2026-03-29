@@ -56,6 +56,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/pacientes/**").hasAnyRole("ADMINISTRATIVO", "ADMIN")
                         .requestMatchers("/api/episodios/**").authenticated()
 
+                        .requestMatchers(HttpMethod.POST, "/api/reconocimiento/rostro/**").hasAnyRole("ADMINISTRATIVO", "ADMIN")
+
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);

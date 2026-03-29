@@ -1,0 +1,26 @@
+package com.example.backend_sis.controller;
+
+import com.example.backend_sis.dto.ReconocimientoRostroResponse;
+import com.example.backend_sis.service.ReconocimientoService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+@RestController
+@RequestMapping("/api/reconocimiento")
+@RequiredArgsConstructor
+public class ReconocimientoController {
+
+    private final ReconocimientoService reconocimientoService;
+
+    @PostMapping(value = "/rostro/{pacienteId}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public ReconocimientoRostroResponse registrarRostro(
+            @PathVariable Long pacienteId,
+            @RequestPart("archivo") MultipartFile archivo
+    ) {
+        return reconocimientoService.registrarRostro(pacienteId, archivo);
+    }
+}

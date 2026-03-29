@@ -26,10 +26,6 @@ public class Paciente {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // -----------------------------
-    // Datos básicos
-    // -----------------------------
-
     @Column(unique = true, nullable = false)
     private String dni;
 
@@ -39,7 +35,6 @@ public class Paciente {
     @Column(nullable = false)
     private String apellido;
 
-    @Temporal(TemporalType.DATE)
     private LocalDate fechaNacimiento;
 
     private Integer edad;
@@ -59,23 +54,14 @@ public class Paciente {
     @Temporal(TemporalType.TIMESTAMP)
     private Date fechaModificacion;
 
-    // -----------------------------
-    // Relaciones
-    // -----------------------------
-
     @OneToMany(mappedBy = "paciente", cascade = CascadeType.ALL)
     private List<Reconocimiento> reconocimientos;
 
-    // NUEVA relación 1 ↔ 1
     @OneToOne(mappedBy = "paciente",
             cascade = CascadeType.ALL,
             orphanRemoval = true,
             fetch = FetchType.LAZY)
     private HistoriaClinica historiaClinica;
-
-    // -----------------------------
-    // Enumeraciones
-    // -----------------------------
 
     public enum EstadoPersona {
         VIVO, FALLECIDO
