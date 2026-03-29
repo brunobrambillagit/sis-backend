@@ -1,5 +1,6 @@
 package com.example.backend_sis.controller;
 
+import com.example.backend_sis.dto.PacienteRostroMatchResponse;
 import com.example.backend_sis.dto.ReconocimientoRostroResponse;
 import com.example.backend_sis.service.ReconocimientoService;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +15,13 @@ import org.springframework.web.multipart.MultipartFile;
 public class ReconocimientoController {
 
     private final ReconocimientoService reconocimientoService;
+
+    @PostMapping(value = "/rostro/buscar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public PacienteRostroMatchResponse buscarPacientePorRostro(
+            @RequestPart("archivo") MultipartFile archivo
+    ) {
+        return reconocimientoService.buscarPacientePorRostro(archivo);
+    }
 
     @PostMapping(value = "/rostro/{pacienteId}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)

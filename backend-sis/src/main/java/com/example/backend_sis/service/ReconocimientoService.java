@@ -1,5 +1,6 @@
 package com.example.backend_sis.service;
 
+import com.example.backend_sis.dto.PacienteRostroMatchResponse;
 import com.example.backend_sis.dto.ReconocimientoRostroResponse;
 import com.example.backend_sis.exception.BusinessException;
 import com.example.backend_sis.model.Paciente;
@@ -37,7 +38,6 @@ public class ReconocimientoService {
         }
 
         S3Service.UploadResult uploadResult = s3Service.subirRostro(archivo, pacienteId);
-
         String externalImageId = "paciente-" + paciente.getId() + "-" + paciente.getDni();
 
         RekognitionService.IndexFaceResult indexFaceResult = rekognitionService.indexarRostro(
@@ -61,8 +61,40 @@ public class ReconocimientoService {
         reconocimiento.setPaciente(paciente);
 
         Reconocimiento guardado = reconocimientoRepository.save(reconocimiento);
-
         return toResponse(guardado);
+    }
+
+    public PacienteRostroMatchResponse buscarPacientePorRostro(MultipartFile archivo) {
+        RekognitionService.SearchFaceResult searchResult = rekognitionService.buscarRostro(archivo);
+
+        Reconocimiento reconocimiento = reconocimientoRepository
+                .findByReferenciaBiometricaAndTipoBiometria(
+                        searchResult.getFaceId(),
+                        Reconocimiento.TipoBiometria.ROSTRO
+                )
+                .orElseThrow(() -> new BusinessException("Se encontró una coincidencia en Rekognition, pero no está vinculada a un paciente del sistema."));
+
+        Paciente paciente = reconocimiento.getPaciente();
+
+        if (paciente == null) {
+            throw new BusinessException("La coincidencia encontrada no tiene un paciente asociado.");
+        }
+
+        return PacienteRostroMatchResponse.builder()
+                .id(paciente.getId())
+                .dni(paciente.getDni())
+                .nombre(paciente.getNombre())
+                .apellido(paciente.getApellido())
+                .nroHistoriaClinica(paciente.getNroHistoriaClinica())
+                .fechaNacimiento(paciente.getFechaNacimiento())
+                .edad(paciente.getEdad())
+                .sexo(paciente.getSexo())
+                .estadoPersona(paciente.getEstadoPersona())
+                .fechaAlta(paciente.getFechaAlta())
+                .fechaModificacion(paciente.getFechaModificacion())
+                .referenciaBiometrica(reconocimiento.getReferenciaBiometrica())
+                .similitud(searchResult.getSimilarity())
+                .build();
     }
 
     private ReconocimientoRostroResponse toResponse(Reconocimiento r) {
