@@ -1,10 +1,12 @@
 package com.example.backend_sis.controller;
 
+import com.example.backend_sis.dto.CambiarPasswordRequest;
 import com.example.backend_sis.dto.UsuarioRequest;
 import com.example.backend_sis.model.Usuario;
 import com.example.backend_sis.service.UsuarioService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.core.Authentication;
 
 @RestController
 @RequestMapping("/api/usuarios")
@@ -31,6 +33,27 @@ public class UsuarioController {
     public ResponseEntity<?> listarMedicos() {
         try {
             return ResponseEntity.ok(usuarioService.listarMedicos());
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @PutMapping("/me/password")
+    public ResponseEntity<?> cambiarPassword(
+            @RequestBody CambiarPasswordRequest request,
+            Authentication authentication
+    ) {
+        try {
+            String email = authentication.getName();
+
+            usuarioService.cambiarPassword(
+                    email,
+                    request.passwordActual,
+                    request.passwordNueva
+            );
+
+            return ResponseEntity.ok("Contraseña actualizada correctamente");
+
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }

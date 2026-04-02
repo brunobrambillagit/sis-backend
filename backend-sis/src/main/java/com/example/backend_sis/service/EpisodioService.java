@@ -297,4 +297,28 @@ public class EpisodioService {
         movimiento.setFechaMovimiento(LocalDateTime.now());
         movimientoCamaRepository.save(movimiento);
     }
+
+    public List<EpisodioListItemResponse> listarPorPacienteDni(String dni) {
+        String limpio = (dni == null) ? "" : dni.replaceAll("[^0-9]", "");
+
+        if (limpio.isBlank()) {
+            throw new RuntimeException("DNI inválido");
+        }
+
+        return episodioRepository.findByPaciente_DniOrderByFechaIngresoDesc(limpio)
+                .stream()
+                .map(episodio -> EpisodioListItemResponse.builder()
+                        .episodioId(episodio.getId())
+                        .pacienteId(episodio.getPaciente().getId())
+                        .dni(episodio.getPaciente().getDni())
+                        .nombre(episodio.getPaciente().getNombre())
+                        .apellido(episodio.getPaciente().getApellido())
+                        .tipoServicio(episodio.getTipoServicio())
+                        .estadoAtencion(episodio.getEstadoAtencion())
+                        .fechaIngreso(episodio.getFechaIngreso())
+                        .camaId(episodio.getCama() != null ? episodio.getCama().getId() : null)
+                        .camaCodigo(episodio.getCama() != null ? episodio.getCama().getCodigo() : null)
+                        .build())
+                .toList();
+    }
 }

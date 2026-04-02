@@ -43,7 +43,9 @@ public class AuthService {
                 u.getId(),
                 token,
                 u.getEmail(),
-                u.getRol().name()
+                u.getRol().name(),
+                u.getNombre(),
+                u.getApellido()
         );
     }
 }

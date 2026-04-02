@@ -51,4 +51,17 @@ public class UsuarioService {
                         .build())
                 .toList();
     }
+
+    public void cambiarPassword(String email, String actual, String nueva) {
+
+        Usuario usuario = usuarioRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        if (!passwordEncoder.matches(actual, usuario.getPassword())) {
+            throw new RuntimeException("La contraseña actual es incorrecta");
+        }
+
+        usuario.setPassword(passwordEncoder.encode(nueva));
+        usuarioRepository.save(usuario);
+    }
 }

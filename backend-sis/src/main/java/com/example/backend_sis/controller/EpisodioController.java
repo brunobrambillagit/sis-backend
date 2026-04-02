@@ -53,4 +53,11 @@ public class EpisodioController {
     ) {
         return ResponseEntity.ok(episodioService.cambiarCama(id, request));
     }
+
+    @GetMapping("/paciente/{dni}")
+    public ResponseEntity<List<EpisodioListItemResponse>> listarPorPaciente(
+            @PathVariable String dni
+    ) {
+        return ResponseEntity.ok(episodioService.listarPorPacienteDni(dni));
+    }
 }

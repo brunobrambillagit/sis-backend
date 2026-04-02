@@ -53,7 +53,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PATCH, "/api/turnos/*/estado").hasAnyRole("ADMINISTRATIVO", "MEDICO", "ADMIN")
                         .requestMatchers(HttpMethod.PATCH, "/api/turnos/*/reprogramar").hasAnyRole("ADMINISTRATIVO", "ADMIN")
 
-                        .requestMatchers("/api/pacientes/**").hasAnyRole("ADMINISTRATIVO", "ADMIN")
+                        .requestMatchers("/api/pacientes/**").hasAnyRole("ADMINISTRATIVO", "ADMIN", "MEDICO")
+
                         .requestMatchers("/api/episodios/**").authenticated()
 
                         .requestMatchers(HttpMethod.POST, "/api/reconocimiento/rostro/**").hasAnyRole("ADMINISTRATIVO", "ADMIN")
