@@ -7,13 +7,16 @@ public class LoginResponse {
     public String rol;
     public String nombre;
     public String apellido;
+    public Boolean debeCambiarPassword;
 
-    public LoginResponse(Long id,String token, String email, String rol, String nombre, String apellido) {
+
+    public LoginResponse(Long id,String token, String email, String rol, String nombre, String apellido, Boolean debeCambiarPassword) {
         this.id = id;
         this.token = token;
         this.email = email;
         this.rol = rol;
         this.nombre = nombre;
         this.apellido = apellido;
+        this.debeCambiarPassword = debeCambiarPassword;
     }
 }

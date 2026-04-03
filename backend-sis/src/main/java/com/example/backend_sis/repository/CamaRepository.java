@@ -10,4 +10,10 @@ import java.util.List;
 public interface CamaRepository extends JpaRepository<Cama, Long> {
 
     List<Cama> findByTipoServicioAndEstadoOrderByCodigoAsc(TipoServicio tipoServicio, EstadoCama estado);
+
+    List<Cama> findAllByOrderByCodigoAsc();
+
+    boolean existsByCodigoIgnoreCase(String codigo);
+
+    boolean existsByCodigoIgnoreCaseAndIdNot(String codigo, Long id);
 }

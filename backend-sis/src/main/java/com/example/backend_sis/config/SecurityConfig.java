@@ -32,7 +32,6 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-
         http
                 .cors(Customizer.withDefaults())
                 .csrf(csrf -> csrf.disable())
@@ -40,7 +39,14 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
-                        .requestMatchers("/api/usuarios/registrar").permitAll()
+
+                        .requestMatchers(HttpMethod.POST, "/api/usuarios/registrar").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/usuarios").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/usuarios/*").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/usuarios/*/password").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/usuarios/*/reset-password").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/usuarios/medicos").hasAnyRole("ADMINISTRATIVO", "ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/usuarios/me/password").authenticated()
 
                         .requestMatchers("/api/historias-clinicas/**").hasRole("MEDICO")
 
@@ -54,10 +60,16 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PATCH, "/api/turnos/*/reprogramar").hasAnyRole("ADMINISTRATIVO", "ADMIN")
 
                         .requestMatchers("/api/pacientes/**").hasAnyRole("ADMINISTRATIVO", "ADMIN", "MEDICO")
-
                         .requestMatchers("/api/episodios/**").authenticated()
 
+                        .requestMatchers(HttpMethod.GET, "/api/camas").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/camas").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/camas/*").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/camas/disponibles/hospitalizacion").hasAnyRole("ADMINISTRATIVO", "MEDICO", "ADMIN")
+
                         .requestMatchers(HttpMethod.POST, "/api/reconocimiento/rostro/**").hasAnyRole("ADMINISTRATIVO", "ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/reconocimiento/rostros/admin").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/reconocimiento/rostros/*").hasRole("ADMIN")
 
                         .anyRequest().authenticated()
                 )

@@ -31,4 +31,15 @@ public class ReconocimientoController {
     ) {
         return reconocimientoService.registrarRostro(pacienteId, archivo);
     }
+
+    @GetMapping("/rostros/admin")
+    public Object listarRostrosAdmin() {
+        return reconocimientoService.listarRostrosAdmin();
+    }
+
+    @DeleteMapping("/rostros/{reconocimientoId}")
+    public Object eliminarRostroAdmin(@PathVariable Long reconocimientoId) {
+        reconocimientoService.eliminarRostroAdmin(reconocimientoId);
+        return "Registro biométrico eliminado correctamente";
+    }
 }

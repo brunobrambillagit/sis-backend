@@ -32,6 +32,10 @@ public class Usuario {
     @Enumerated(EnumType.STRING)
     private Rol rol;
 
+    @Column(nullable = false)
+    @Builder.Default
+    private Boolean debeCambiarPassword = false;
+
     public enum Rol {
         ADMIN,
         MEDICO,

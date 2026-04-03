@@ -45,7 +45,8 @@ public class AuthService {
                 u.getEmail(),
                 u.getRol().name(),
                 u.getNombre(),
-                u.getApellido()
+                u.getApellido(),
+                u.getDebeCambiarPassword()
         );
     }
 }

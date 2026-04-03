@@ -1,5 +1,6 @@
 package com.example.backend_sis.service;
 
+import com.example.backend_sis.dto.AdminReconocimientoResponse;
 import com.example.backend_sis.dto.PacienteRostroMatchResponse;
 import com.example.backend_sis.dto.ReconocimientoRostroResponse;
 import com.example.backend_sis.exception.BusinessException;
@@ -9,9 +10,11 @@ import com.example.backend_sis.repository.PacienteRepository;
 import com.example.backend_sis.repository.ReconocimientoRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Date;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -24,6 +27,7 @@ public class ReconocimientoService {
     private final S3Service s3Service;
     private final RekognitionService rekognitionService;
 
+    @Transactional
     public ReconocimientoRostroResponse registrarRostro(Long pacienteId, MultipartFile archivo) {
         Paciente paciente = pacienteRepository.findById(pacienteId)
                 .orElseThrow(() -> new BusinessException("No existe paciente con id " + pacienteId));
@@ -64,6 +68,7 @@ public class ReconocimientoService {
         return toResponse(guardado);
     }
 
+    @Transactional(readOnly = true)
     public PacienteRostroMatchResponse buscarPacientePorRostro(MultipartFile archivo) {
         RekognitionService.SearchFaceResult searchResult = rekognitionService.buscarRostro(archivo);
 
@@ -97,6 +102,28 @@ public class ReconocimientoService {
                 .build();
     }
 
+    @Transactional(readOnly = true)
+    public List<AdminReconocimientoResponse> listarRostrosAdmin() {
+        return reconocimientoRepository.findByTipoBiometriaOrderByIdDesc(Reconocimiento.TipoBiometria.ROSTRO)
+                .stream()
+                .map(this::toAdminResponse)
+                .toList();
+    }
+
+    @Transactional
+    public void eliminarRostroAdmin(Long reconocimientoId) {
+        Reconocimiento reconocimiento = reconocimientoRepository.findById(reconocimientoId)
+                .orElseThrow(() -> new BusinessException("No se encontró el registro biométrico."));
+
+        if (reconocimiento.getTipoBiometria() != Reconocimiento.TipoBiometria.ROSTRO) {
+            throw new BusinessException("El registro indicado no corresponde a un rostro.");
+        }
+
+        rekognitionService.eliminarRostro(reconocimiento.getReferenciaBiometrica());
+        s3Service.eliminarObjeto(reconocimiento.getS3Bucket(), reconocimiento.getS3Key());
+        reconocimientoRepository.delete(reconocimiento);
+    }
+
     private ReconocimientoRostroResponse toResponse(Reconocimiento r) {
         Paciente p = r.getPaciente();
 
@@ -114,6 +141,25 @@ public class ReconocimientoService {
                 .s3Key(r.getS3Key())
                 .fechaCaptura(r.getFechaCaptura())
                 .fechaVinculoPaciente(r.getFechaVinculoPaciente())
+                .build();
+    }
+
+    private AdminReconocimientoResponse toAdminResponse(Reconocimiento r) {
+        Paciente p = r.getPaciente();
+
+        return AdminReconocimientoResponse.builder()
+                .id(r.getId())
+                .pacienteId(p != null ? p.getId() : null)
+                .pacienteDni(p != null ? p.getDni() : null)
+                .pacienteNombreCompleto(p != null
+                        ? ((p.getApellido() == null ? "" : p.getApellido()) + ", " + (p.getNombre() == null ? "" : p.getNombre()))
+                        : null)
+                .faceId(r.getReferenciaBiometrica())
+                .externalImageId(r.getExternalImageId())
+                .collectionId(r.getCollectionId())
+                .s3Bucket(r.getS3Bucket())
+                .s3Key(r.getS3Key())
+                .previewUrl(s3Service.generarUrlTemporal(r.getS3Bucket(), r.getS3Key(), 30))
                 .build();
     }
 }

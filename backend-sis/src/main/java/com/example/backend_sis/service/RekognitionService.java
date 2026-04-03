@@ -5,15 +5,13 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import software.amazon.awssdk.services.rekognition.RekognitionClient;
-import software.amazon.awssdk.services.rekognition.model.*;
-import java.util.List;
 import org.springframework.web.multipart.MultipartFile;
 import software.amazon.awssdk.core.SdkBytes;
-import software.amazon.awssdk.services.rekognition.model.FaceMatch;
-import software.amazon.awssdk.services.rekognition.model.SearchFacesByImageRequest;
-import software.amazon.awssdk.services.rekognition.model.SearchFacesByImageResponse;
+import software.amazon.awssdk.services.rekognition.RekognitionClient;
+import software.amazon.awssdk.services.rekognition.model.*;
+
 import java.io.IOException;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -60,38 +58,6 @@ public class RekognitionService {
         }
     }
 
-    private void asegurarColeccion() {
-        try {
-            rekognitionClient.describeCollection(
-                    DescribeCollectionRequest.builder()
-                            .collectionId(collectionId)
-                            .build()
-            );
-        } catch (ResourceNotFoundException e) {
-            try {
-                rekognitionClient.createCollection(
-                        CreateCollectionRequest.builder()
-                                .collectionId(collectionId)
-                                .build()
-                );
-            } catch (ResourceAlreadyExistsException ignored) {
-            }
-        }
-    }
-
-    @Getter
-    public static class IndexFaceResult {
-        private final String faceId;
-        private final String collectionId;
-        private final String externalImageId;
-
-        public IndexFaceResult(String faceId, String collectionId, String externalImageId) {
-            this.faceId = faceId;
-            this.collectionId = collectionId;
-            this.externalImageId = externalImageId;
-        }
-    }
-
     public SearchFaceResult buscarRostro(MultipartFile archivo) {
         validarArchivoImagen(archivo);
 
@@ -130,6 +96,40 @@ public class RekognitionService {
         }
     }
 
+    public void eliminarRostro(String faceId) {
+        try {
+            DeleteFacesRequest request = DeleteFacesRequest.builder()
+                    .collectionId(collectionId)
+                    .faceIds(faceId)
+                    .build();
+
+            rekognitionClient.deleteFaces(request);
+        } catch (RekognitionException e) {
+            throw new BusinessException("No se pudo eliminar el rostro de Rekognition: " + e.awsErrorDetails().errorMessage());
+        } catch (Exception e) {
+            throw new BusinessException("Error inesperado al eliminar el rostro de Rekognition: " + e.getMessage());
+        }
+    }
+
+    private void asegurarColeccion() {
+        try {
+            rekognitionClient.describeCollection(
+                    DescribeCollectionRequest.builder()
+                            .collectionId(collectionId)
+                            .build()
+            );
+        } catch (ResourceNotFoundException e) {
+            try {
+                rekognitionClient.createCollection(
+                        CreateCollectionRequest.builder()
+                                .collectionId(collectionId)
+                                .build()
+                );
+            } catch (ResourceAlreadyExistsException ignored) {
+            }
+        }
+    }
+
     private void validarArchivoImagen(MultipartFile archivo) {
         if (archivo == null || archivo.isEmpty()) {
             throw new BusinessException("Debe enviar un archivo de imagen.");
@@ -138,6 +138,19 @@ public class RekognitionService {
         String contentType = archivo.getContentType();
         if (contentType == null || !contentType.toLowerCase().startsWith("image/")) {
             throw new BusinessException("El archivo enviado debe ser una imagen válida.");
+        }
+    }
+
+    @Getter
+    public static class IndexFaceResult {
+        private final String faceId;
+        private final String collectionId;
+        private final String externalImageId;
+
+        public IndexFaceResult(String faceId, String collectionId, String externalImageId) {
+            this.faceId = faceId;
+            this.collectionId = collectionId;
+            this.externalImageId = externalImageId;
         }
     }
 
@@ -151,5 +164,4 @@ public class RekognitionService {
             this.similarity = similarity;
         }
     }
-
 }
