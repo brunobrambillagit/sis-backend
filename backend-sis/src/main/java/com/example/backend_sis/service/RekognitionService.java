@@ -97,6 +97,12 @@ public class RekognitionService {
     }
 
     public void eliminarRostro(String faceId) {
+        if (faceId == null || faceId.isBlank()) {
+            return;
+        }
+
+        asegurarColeccion();
+
         try {
             DeleteFacesRequest request = DeleteFacesRequest.builder()
                     .collectionId(collectionId)
@@ -105,9 +111,9 @@ public class RekognitionService {
 
             rekognitionClient.deleteFaces(request);
         } catch (RekognitionException e) {
-            throw new BusinessException("No se pudo eliminar el rostro de Rekognition: " + e.awsErrorDetails().errorMessage());
+            throw new BusinessException("Error al eliminar el rostro en AWS Rekognition: " + e.awsErrorDetails().errorMessage());
         } catch (Exception e) {
-            throw new BusinessException("Error inesperado al eliminar el rostro de Rekognition: " + e.getMessage());
+            throw new BusinessException("Error inesperado al eliminar el rostro en AWS Rekognition: " + e.getMessage());
         }
     }
 

@@ -9,11 +9,10 @@ import org.springframework.web.multipart.MultipartFile;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
-import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -52,19 +51,11 @@ public class S3Service {
         }
     }
 
-    public void eliminarObjeto(String bucket, String key) {
-        try {
-            DeleteObjectRequest request = DeleteObjectRequest.builder()
-                    .bucket(bucket)
-                    .key(key)
-                    .build();
-            s3Client.deleteObject(request);
-        } catch (Exception e) {
-            throw new BusinessException("No se pudo eliminar la imagen de S3: " + e.getMessage());
+    public String generarUrlPreviewTemporal(String bucket, String key) {
+        if (bucket == null || bucket.isBlank() || key == null || key.isBlank()) {
+            return null;
         }
-    }
 
-    public String generarUrlTemporal(String bucket, String key, int minutos) {
         try {
             GetObjectRequest getObjectRequest = GetObjectRequest.builder()
                     .bucket(bucket)
@@ -72,14 +63,32 @@ public class S3Service {
                     .build();
 
             GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
-                    .signatureDuration(Duration.ofMinutes(minutos))
                     .getObjectRequest(getObjectRequest)
+                    .signatureDuration(Duration.ofMinutes(15))
                     .build();
 
-            PresignedGetObjectRequest presignedRequest = s3Presigner.presignGetObject(presignRequest);
-            return presignedRequest.url().toString();
+            return s3Presigner.presignGetObject(presignRequest)
+                    .url()
+                    .toString();
         } catch (Exception e) {
-            throw new BusinessException("No se pudo generar la URL temporal de la imagen: " + e.getMessage());
+            throw new BusinessException("No se pudo generar la URL temporal de preview: " + e.getMessage());
+        }
+    }
+
+    public void eliminarObjeto(String bucket, String key) {
+        if (bucket == null || bucket.isBlank() || key == null || key.isBlank()) {
+            return;
+        }
+
+        try {
+            DeleteObjectRequest request = DeleteObjectRequest.builder()
+                    .bucket(bucket)
+                    .key(key)
+                    .build();
+
+            s3Client.deleteObject(request);
+        } catch (Exception e) {
+            throw new BusinessException("No se pudo eliminar la imagen de S3: " + e.getMessage());
         }
     }
 

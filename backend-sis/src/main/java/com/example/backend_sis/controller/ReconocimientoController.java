@@ -1,6 +1,7 @@
 package com.example.backend_sis.controller;
 
 import com.example.backend_sis.dto.PacienteRostroMatchResponse;
+import com.example.backend_sis.dto.ReconocimientoAdminItemResponse;
 import com.example.backend_sis.dto.ReconocimientoRostroResponse;
 import com.example.backend_sis.service.ReconocimientoService;
 import lombok.RequiredArgsConstructor;
@@ -8,6 +9,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/reconocimiento")
@@ -33,7 +36,7 @@ public class ReconocimientoController {
     }
 
     @GetMapping("/rostros/admin")
-    public Object listarRostrosAdmin() {
+    public List<ReconocimientoAdminItemResponse> listarRostrosAdmin() {
         return reconocimientoService.listarRostrosAdmin();
     }
 
