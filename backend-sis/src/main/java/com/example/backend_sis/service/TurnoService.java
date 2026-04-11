@@ -34,7 +34,11 @@ public class TurnoService {
     private static final Set<EstadoTurno> ESTADOS_VISIBLES_MEDICO = Set.of(
             EstadoTurno.EN_ESPERA,
             EstadoTurno.EN_ATENCION,
-            EstadoTurno.FINALIZADO
+            EstadoTurno.FINALIZADO,
+            EstadoTurno.CITADO,
+            EstadoTurno.DISPONIBLE,
+            EstadoTurno.AUSENTE,
+            EstadoTurno.ALTA
     );
 
     private final TurnoRepository turnoRepository;
