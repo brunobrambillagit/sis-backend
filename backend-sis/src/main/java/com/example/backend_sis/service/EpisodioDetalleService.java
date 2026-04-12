@@ -2,10 +2,7 @@ package com.example.backend_sis.service;
 
 import com.example.backend_sis.dto.*;
 import com.example.backend_sis.model.*;
-import com.example.backend_sis.repository.EpisodioRepository;
-import com.example.backend_sis.repository.EvolucionEpisodioRepository;
-import com.example.backend_sis.repository.ObservacionEpisodioRepository;
-import com.example.backend_sis.repository.UsuarioRepository;
+import com.example.backend_sis.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -19,6 +16,8 @@ public class EpisodioDetalleService {
     private final UsuarioRepository usuarioRepository;
     private final ObservacionEpisodioRepository observacionRepository;
     private final EvolucionEpisodioRepository evolucionRepository;
+    private final HistoriaClinicaRepository historiaClinicaRepository;
+    private final ObservacionHistoriaClinicaRepository observacionHistoriaClinicaRepository;
 
     public EpisodioDetalleResponse obtenerDetalle(Long episodioId) {
         Episodio episodio = episodioRepository.findById(episodioId)
@@ -56,6 +55,24 @@ public class EpisodioDetalleService {
             observacionesHC = episodio.getPaciente().getHistoriaClinica().getObservaciones();
         }
 
+        List<ObservacionHistoriaClinicaResponse> historialObservacionesHC = List.of();
+
+        if (episodio.getPaciente().getHistoriaClinica() != null) {
+            Long historiaClinicaId = episodio.getPaciente().getHistoriaClinica().getId();
+
+            historialObservacionesHC = observacionHistoriaClinicaRepository
+                    .findByHistoriaClinicaIdOrderByFechaRegistroDesc(historiaClinicaId)
+                    .stream()
+                    .map(o -> ObservacionHistoriaClinicaResponse.builder()
+                            .id(o.getId())
+                            .observacion(o.getObservacion())
+                            .fechaRegistro(o.getFechaRegistro())
+                            .usuarioId(o.getUsuario().getId())
+                            .nombreUsuario(o.getUsuario().getNombre() + " " + o.getUsuario().getApellido())
+                            .build())
+                    .toList();
+        }
+
         return EpisodioDetalleResponse.builder()
                 .episodioId(episodio.getId())
                 .tipoServicio(episodio.getTipoServicio())
@@ -72,6 +89,7 @@ public class EpisodioDetalleService {
                 .observacionesHistoriaClinica(observacionesHC)
                 .observaciones(observaciones)
                 .evoluciones(evoluciones)
+                .historialObservacionesHistoriaClinica(historialObservacionesHC)
                 .build();
     }
 
@@ -123,6 +141,76 @@ public class EpisodioDetalleService {
                 .evolucion(guardada.getEvolucion())
                 .medicacionIndicaciones(guardada.getMedicacionIndicaciones())
                 .estudiosSolicitados(guardada.getEstudiosSolicitados())
+                .fechaRegistro(guardada.getFechaRegistro())
+                .usuarioId(usuario.getId())
+                .nombreUsuario(usuario.getNombre() + " " + usuario.getApellido())
+                .build();
+    }
+
+    public HistoriaClinicaResponse actualizarObservacionesHC(Long episodioId, HistoriaClinicaUpdateObservacionesRequest request) {
+
+        Episodio episodio = episodioRepository.findById(episodioId)
+                .orElseThrow(() -> new RuntimeException("Episodio no encontrado"));
+
+        HistoriaClinica hc = episodio.getPaciente().getHistoriaClinica();
+
+        if (hc == null) {
+            throw new RuntimeException("El paciente no tiene historia clínica");
+        }
+
+        hc.setObservaciones(request.getObservaciones());
+        HistoriaClinica guardada = historiaClinicaRepository.save(hc);
+
+        // No hace falta save explícito si estás en contexto JPA,
+        // pero por claridad:
+        // historiaClinicaRepository.save(hc);
+
+        return HistoriaClinicaResponse.builder()
+                .id(hc.getId())
+                .fechaCreacion(hc.getFechaCreacion())
+                .observaciones(hc.getObservaciones())
+                .paciente(HistoriaClinicaResponse.PacienteResumen.builder()
+                        .id(episodio.getPaciente().getId())
+                        .dni(episodio.getPaciente().getDni())
+                        .nombre(episodio.getPaciente().getNombre())
+                        .apellido(episodio.getPaciente().getApellido())
+                        .nroHistoriaClinica(episodio.getPaciente().getNroHistoriaClinica())
+                        .build())
+                .build();
+    }
+
+    public ObservacionHistoriaClinicaResponse agregarObservacionHistoriaClinica(
+            Long episodioId,
+            ObservacionHistoriaClinicaCreateRequest request
+    ) {
+        Episodio episodio = episodioRepository.findById(episodioId)
+                .orElseThrow(() -> new RuntimeException("Episodio no encontrado"));
+
+        Usuario usuario = usuarioRepository.findById(request.getUsuarioId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        HistoriaClinica historiaClinica = episodio.getPaciente().getHistoriaClinica();
+
+        if (historiaClinica == null) {
+            throw new RuntimeException("El paciente no tiene historia clínica asociada");
+        }
+
+        String observacion = request.getObservacion();
+        if (observacion == null || observacion.trim().isBlank()) {
+            throw new RuntimeException("La observación de historia clínica es obligatoria");
+        }
+
+        ObservacionHistoriaClinica nueva = ObservacionHistoriaClinica.builder()
+                .historiaClinica(historiaClinica)
+                .usuario(usuario)
+                .observacion(observacion.trim())
+                .build();
+
+        ObservacionHistoriaClinica guardada = observacionHistoriaClinicaRepository.save(nueva);
+
+        return ObservacionHistoriaClinicaResponse.builder()
+                .id(guardada.getId())
+                .observacion(guardada.getObservacion())
                 .fechaRegistro(guardada.getFechaRegistro())
                 .usuarioId(usuario.getId())
                 .nombreUsuario(usuario.getNombre() + " " + usuario.getApellido())

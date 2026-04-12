@@ -30,4 +30,5 @@ public class EpisodioDetalleResponse {
 
     private List<ObservacionEpisodioResponse> observaciones;
     private List<EvolucionEpisodioResponse> evoluciones;
+    private List<ObservacionHistoriaClinicaResponse> historialObservacionesHistoriaClinica;
 }

@@ -18,6 +18,16 @@ public class EpisodioDetalleController {
         return ResponseEntity.ok(episodioDetalleService.obtenerDetalle(id));
     }
 
+    @PostMapping("/{id}/historia-clinica/historial-observaciones")
+    public ResponseEntity<ObservacionHistoriaClinicaResponse> agregarObservacionHistoriaClinica(
+            @PathVariable Long id,
+            @RequestBody ObservacionHistoriaClinicaCreateRequest request
+    ) {
+        return ResponseEntity.ok(
+                episodioDetalleService.agregarObservacionHistoriaClinica(id, request)
+        );
+    }
+
     @PostMapping("/{id}/observaciones")
     public ResponseEntity<ObservacionEpisodioResponse> agregarObservacion(
             @PathVariable Long id,
@@ -32,5 +42,15 @@ public class EpisodioDetalleController {
             @RequestBody EvolucionEpisodioCreateRequest request
     ) {
         return ResponseEntity.ok(episodioDetalleService.agregarEvolucion(id, request));
+    }
+
+    @PutMapping("/{id}/historia-clinica/observaciones")
+    public ResponseEntity<HistoriaClinicaResponse> actualizarObservacionesHC(
+            @PathVariable Long id,
+            @RequestBody HistoriaClinicaUpdateObservacionesRequest request
+    ) {
+        return ResponseEntity.ok(
+                episodioDetalleService.actualizarObservacionesHC(id, request)
+        );
     }
 }

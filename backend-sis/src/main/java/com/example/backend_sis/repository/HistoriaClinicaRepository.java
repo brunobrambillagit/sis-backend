@@ -10,4 +10,6 @@ public interface HistoriaClinicaRepository extends JpaRepository<HistoriaClinica
     Optional<HistoriaClinica> findByPaciente_Dni(String dni);
 
     Optional<HistoriaClinica> findByPaciente_Id(Long pacienteId);
+
+
 }
