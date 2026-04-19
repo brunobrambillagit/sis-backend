@@ -1,0 +1,5461 @@
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\BackendApplication.java
+==============================
+
+package com.example.backend_sis;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class BackendApplication {
+
+	public static void main(String[] args) {
+		SpringApplication.run(BackendApplication.class, args);
+	}
+
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\config\AdminInitializer.java
+==============================
+
+package com.example.backend_sis.config;
+
+import com.example.backend_sis.model.Usuario;
+import com.example.backend_sis.repository.UsuarioRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Component;
+
+@Component
+@RequiredArgsConstructor
+public class AdminInitializer implements CommandLineRunner {
+
+    private final UsuarioRepository usuarioRepository;
+    private final PasswordEncoder passwordEncoder;
+
+    @Override
+    public void run(String... args) {
+
+        String emailAdmin = "root@root.com";
+
+        boolean existe = usuarioRepository.findByEmail(emailAdmin).isPresent();
+
+        if (existe) {
+            System.out.println("El usuario ADMIN ya existe. No se crea nuevamente.");
+            return;
+        }
+
+        Usuario admin = Usuario.builder()
+                .nombre("Bruno")
+                .apellido("Brambilla")
+                .cuit("00000000")
+                .email(emailAdmin)
+                .password(passwordEncoder.encode("Hola1234!"))
+                .rol(Usuario.Rol.ADMIN)
+                .build();
+
+        usuarioRepository.save(admin);
+
+        System.out.println("✅ Usuario ADMIN inicial creado correctamente.");
+        System.out.println("👉 Email: root@root.com");
+        System.out.println("👉 Password: Hola1234!");
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\config\AwsConfig.java
+==============================
+
+package com.example.backend_sis.config;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.rekognition.RekognitionClient;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+
+@Configuration
+public class AwsConfig {
+
+    @Value("${aws.region}")
+    private String awsRegion;
+
+    @Bean
+    public S3Client s3Client() {
+        return S3Client.builder()
+                .region(Region.of(awsRegion))
+                .credentialsProvider(DefaultCredentialsProvider.create())
+                .build();
+    }
+
+    @Bean
+    public RekognitionClient rekognitionClient() {
+        return RekognitionClient.builder()
+                .region(Region.of(awsRegion))
+                .credentialsProvider(DefaultCredentialsProvider.create())
+                .build();
+    }
+
+    @Bean
+    public S3Presigner s3Presigner() {
+        return S3Presigner.builder()
+                .region(Region.of(awsRegion))
+                .credentialsProvider(DefaultCredentialsProvider.create())
+                .build();
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\config\JwtAuthFilter.java
+==============================
+
+package com.example.backend_sis.config;
+
+import com.example.backend_sis.service.JwtService;
+import com.example.backend_sis.service.UsuarioDetailsService;
+import jakarta.servlet.*;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import java.io.IOException;
+
+@Component
+public class JwtAuthFilter extends OncePerRequestFilter {
+
+    private final JwtService jwtService;
+    private final UsuarioDetailsService usuarioDetailsService;
+
+    public JwtAuthFilter(JwtService jwtService, UsuarioDetailsService usuarioDetailsService) {
+        this.jwtService = jwtService;
+        this.usuarioDetailsService = usuarioDetailsService;
+    }
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+            throws ServletException, IOException {
+
+        String authHeader = request.getHeader("Authorization");
+
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        String token = authHeader.substring(7);
+        String username = jwtService.extractUsername(token);
+
+        if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+
+            UserDetails userDetails = usuarioDetailsService.loadUserByUsername(username);
+
+            if (jwtService.isTokenValid(token, userDetails)) {
+                UsernamePasswordAuthenticationToken authToken =
+                        new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
+
+                authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+
+                SecurityContextHolder.getContext().setAuthentication(authToken);
+            }
+        }
+
+        filterChain.doFilter(request, response);
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\config\SecurityConfig.java
+==============================
+
+package com.example.backend_sis.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.util.List;
+
+@Configuration
+public class SecurityConfig {
+
+    private final JwtAuthFilter jwtAuthFilter;
+
+    public SecurityConfig(JwtAuthFilter jwtAuthFilter) {
+        this.jwtAuthFilter = jwtAuthFilter;
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+                .cors(Customizer.withDefaults())
+                .csrf(csrf -> csrf.disable())
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        .requestMatchers("/api/auth/**").permitAll()
+
+                        .requestMatchers(HttpMethod.POST, "/api/usuarios/registrar").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/usuarios").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/usuarios/*").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/usuarios/*/password").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/usuarios/*/reset-password").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/usuarios/medicos").hasAnyRole("ADMINISTRATIVO", "ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/usuarios/me/password").authenticated()
+
+                        .requestMatchers("/api/historias-clinicas/**").hasRole("MEDICO")
+
+                        .requestMatchers(HttpMethod.POST, "/api/agendas/**").hasAnyRole("ADMINISTRATIVO", "ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/agendas/**").hasAnyRole("ADMINISTRATIVO", "MEDICO", "ADMIN")
+
+                        .requestMatchers(HttpMethod.GET, "/api/turnos/dia").hasAnyRole("ADMINISTRATIVO", "ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/turnos/medico/**").hasRole("MEDICO")
+                        .requestMatchers(HttpMethod.PATCH, "/api/turnos/*/asignar-paciente").hasAnyRole("ADMINISTRATIVO", "ADMIN")
+                        .requestMatchers(HttpMethod.PATCH, "/api/turnos/*/estado").hasAnyRole("ADMINISTRATIVO", "MEDICO", "ADMIN")
+                        .requestMatchers(HttpMethod.PATCH, "/api/turnos/*/reprogramar").hasAnyRole("ADMINISTRATIVO", "ADMIN")
+
+                        .requestMatchers("/api/pacientes/**").hasAnyRole("ADMINISTRATIVO", "ADMIN", "MEDICO")
+                        .requestMatchers("/api/episodios/**").authenticated()
+
+                        .requestMatchers(HttpMethod.GET, "/api/camas").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/camas").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/camas/*").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/camas/disponibles/hospitalizacion").hasAnyRole("ADMINISTRATIVO", "MEDICO", "ADMIN")
+
+                        .requestMatchers(HttpMethod.POST, "/api/reconocimiento/rostro/**").hasAnyRole("ADMINISTRATIVO", "ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/reconocimiento/rostros/admin").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/reconocimiento/rostros/*").hasRole("ADMIN")
+
+                        .anyRequest().authenticated()
+                )
+                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+
+        return http.build();
+    }
+
+    @Bean
+    CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowedOrigins(List.of("http://localhost:5173"));
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
+        config.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
+        return source;
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\controller\AgendaController.java
+==============================
+
+package com.example.backend_sis.controller;
+
+import com.example.backend_sis.dto.AgendaCreateRequest;
+import com.example.backend_sis.dto.AgendaGenerarTurnosRequest;
+import com.example.backend_sis.dto.AgendaResponse;
+import com.example.backend_sis.dto.TurnoListItemResponse;
+import com.example.backend_sis.service.AgendaService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/agendas")
+@RequiredArgsConstructor
+public class AgendaController {
+
+    private final AgendaService agendaService;
+
+    @PostMapping
+    public ResponseEntity<AgendaResponse> crearAgenda(@RequestBody AgendaCreateRequest request) {
+        return ResponseEntity.ok(agendaService.crearAgenda(request));
+    }
+
+    @GetMapping
+    public ResponseEntity<List<AgendaResponse>> listarAgendas() {
+        return ResponseEntity.ok(agendaService.listarAgendas());
+    }
+
+    @GetMapping("/medico/{usuarioId}")
+    public ResponseEntity<List<AgendaResponse>> listarAgendasDeMedico(@PathVariable Long usuarioId) {
+        return ResponseEntity.ok(agendaService.listarAgendasDeMedico(usuarioId));
+    }
+
+    @PostMapping("/{agendaId}/generar-turnos")
+    public ResponseEntity<List<TurnoListItemResponse>> generarTurnos(
+            @PathVariable Long agendaId,
+            @RequestBody AgendaGenerarTurnosRequest request
+    ) {
+        return ResponseEntity.ok(agendaService.generarTurnos(agendaId, request));
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\controller\AuthController.java
+==============================
+
+package com.example.backend_sis.controller;
+
+import com.example.backend_sis.dto.LoginRequest;
+import com.example.backend_sis.dto.LoginResponse;
+import com.example.backend_sis.service.AuthService;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/auth")
+@CrossOrigin(origins = "http://localhost:5173")
+public class AuthController {
+
+    private final AuthService authService;
+
+    public AuthController(AuthService authService) {
+        this.authService = authService;
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<?> login(@RequestBody LoginRequest request) {
+        try {
+            LoginResponse response = authService.login(request);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.status(401).body(e.getMessage());
+        }
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\controller\CamaController.java
+==============================
+
+package com.example.backend_sis.controller;
+
+import com.example.backend_sis.dto.CamaAdminRequest;
+import com.example.backend_sis.dto.CamaResponse;
+import com.example.backend_sis.service.CamaService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/camas")
+@RequiredArgsConstructor
+public class CamaController {
+
+    private final CamaService camaService;
+
+    @GetMapping
+    public ResponseEntity<?> listarTodas() {
+        try {
+            return ResponseEntity.ok(camaService.listarTodas());
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @PostMapping
+    public ResponseEntity<?> crear(@RequestBody CamaAdminRequest request) {
+        try {
+            return ResponseEntity.ok(camaService.crear(request));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @PutMapping("/{camaId}")
+    public ResponseEntity<?> actualizar(@PathVariable Long camaId, @RequestBody CamaAdminRequest request) {
+        try {
+            return ResponseEntity.ok(camaService.actualizar(camaId, request));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @GetMapping("/disponibles/hospitalizacion")
+    public ResponseEntity<List<CamaResponse>> listarDisponiblesHospitalizacion() {
+        return ResponseEntity.ok(camaService.listarDisponiblesHospitalizacion());
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\controller\EpisodioController.java
+==============================
+
+package com.example.backend_sis.controller;
+
+import com.example.backend_sis.dto.EpisodioCambioCamaRequest;
+import com.example.backend_sis.dto.EpisodioCreateRequest;
+import com.example.backend_sis.dto.EpisodioListItemResponse;
+import com.example.backend_sis.dto.EpisodioUpdateEstadoRequest;
+import com.example.backend_sis.model.Episodio;
+import com.example.backend_sis.model.EstadoAtencion;
+import com.example.backend_sis.model.TipoServicio;
+import com.example.backend_sis.service.EpisodioService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/episodios")
+@RequiredArgsConstructor
+public class EpisodioController {
+
+    private final EpisodioService episodioService;
+
+    @PostMapping
+    public ResponseEntity<Episodio> crearEpisodio(@RequestBody EpisodioCreateRequest request) {
+        return ResponseEntity.ok(episodioService.crearEpisodio(request));
+    }
+
+    @GetMapping("/activos")
+    public ResponseEntity<List<EpisodioListItemResponse>> listarActivos(
+            @RequestParam TipoServicio servicio
+    ) {
+        return ResponseEntity.ok(episodioService.listarActivosPorServicio(servicio));
+    }
+
+    @PatchMapping("/{id}/estado")
+    public ResponseEntity<Episodio> cambiarEstado(
+            @PathVariable Long id,
+            @RequestBody EpisodioUpdateEstadoRequest request
+    ) {
+        EstadoAtencion nuevoEstado = request.getNuevoEstado();
+        Long usuarioId = request.getUsuarioId();
+
+        return ResponseEntity.ok(
+                episodioService.cambiarEstado(id, nuevoEstado, usuarioId)
+        );
+    }
+
+    @PatchMapping("/{id}/cama")
+    public ResponseEntity<Episodio> cambiarCama(
+            @PathVariable Long id,
+            @RequestBody EpisodioCambioCamaRequest request
+    ) {
+        return ResponseEntity.ok(episodioService.cambiarCama(id, request));
+    }
+
+    @GetMapping("/paciente/{dni}")
+    public ResponseEntity<List<EpisodioListItemResponse>> listarPorPaciente(
+            @PathVariable String dni
+    ) {
+        return ResponseEntity.ok(episodioService.listarPorPacienteDni(dni));
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\controller\EpisodioDetalleController.java
+==============================
+
+package com.example.backend_sis.controller;
+
+import com.example.backend_sis.dto.*;
+import com.example.backend_sis.service.EpisodioDetalleService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/episodios")
+@RequiredArgsConstructor
+public class EpisodioDetalleController {
+
+    private final EpisodioDetalleService episodioDetalleService;
+
+    @GetMapping("/{id}")
+    public ResponseEntity<EpisodioDetalleResponse> obtenerDetalle(@PathVariable Long id) {
+        return ResponseEntity.ok(episodioDetalleService.obtenerDetalle(id));
+    }
+
+    @PostMapping("/{id}/historia-clinica/historial-observaciones")
+    public ResponseEntity<ObservacionHistoriaClinicaResponse> agregarObservacionHistoriaClinica(
+            @PathVariable Long id,
+            @RequestBody ObservacionHistoriaClinicaCreateRequest request
+    ) {
+        return ResponseEntity.ok(
+                episodioDetalleService.agregarObservacionHistoriaClinica(id, request)
+        );
+    }
+
+    @PostMapping("/{id}/observaciones")
+    public ResponseEntity<ObservacionEpisodioResponse> agregarObservacion(
+            @PathVariable Long id,
+            @RequestBody ObservacionEpisodioCreateRequest request
+    ) {
+        return ResponseEntity.ok(episodioDetalleService.agregarObservacion(id, request));
+    }
+
+    @PostMapping("/{id}/evoluciones")
+    public ResponseEntity<EvolucionEpisodioResponse> agregarEvolucion(
+            @PathVariable Long id,
+            @RequestBody EvolucionEpisodioCreateRequest request
+    ) {
+        return ResponseEntity.ok(episodioDetalleService.agregarEvolucion(id, request));
+    }
+
+    @PutMapping("/{id}/historia-clinica/observaciones")
+    public ResponseEntity<HistoriaClinicaResponse> actualizarObservacionesHC(
+            @PathVariable Long id,
+            @RequestBody HistoriaClinicaUpdateObservacionesRequest request
+    ) {
+        return ResponseEntity.ok(
+                episodioDetalleService.actualizarObservacionesHC(id, request)
+        );
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\controller\HistoriaClinicaController.java
+==============================
+
+package com.example.backend_sis.controller;
+
+import com.example.backend_sis.dto.HistoriaClinicaResponse;
+import com.example.backend_sis.exception.BusinessException;
+import com.example.backend_sis.model.HistoriaClinica;
+import com.example.backend_sis.model.Paciente;
+import com.example.backend_sis.repository.HistoriaClinicaRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/historias-clinicas")
+@RequiredArgsConstructor
+public class HistoriaClinicaController {
+
+    private final HistoriaClinicaRepository historiaClinicaRepository;
+
+    // US-11: Ver historia clínica por DNI (solo MEDICO)
+    @GetMapping("/{dni}")
+    public HistoriaClinicaResponse verPorDni(@PathVariable String dni) {
+
+        String limpio = (dni == null) ? "" : dni.replaceAll("[^0-9]", "");
+        if (limpio.isBlank()) throw new BusinessException("DNI inválido");
+
+        HistoriaClinica hc = historiaClinicaRepository.findByPaciente_Dni(limpio)
+                .orElseThrow(() -> new BusinessException("No existe historia clínica para DNI " + limpio));
+
+        // Importante: accedemos a Paciente dentro del request (transacción no garantizada aquí),
+        // pero como es OneToOne y estamos en el mismo contexto de persistencia habitual,
+        Paciente p = hc.getPaciente();
+
+        return HistoriaClinicaResponse.builder()
+                .id(hc.getId())
+                .fechaCreacion(hc.getFechaCreacion())
+                .observaciones(hc.getObservaciones())
+                .paciente(HistoriaClinicaResponse.PacienteResumen.builder()
+                        .id(p.getId())
+                        .dni(p.getDni())
+                        .nombre(p.getNombre())
+                        .apellido(p.getApellido())
+                        .nroHistoriaClinica(p.getNroHistoriaClinica())
+                        .build())
+                .build();
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\controller\MovimientoCamaController.java
+==============================
+
+package com.example.backend_sis.controller;
+
+import com.example.backend_sis.dto.MovimientoCamaResponse;
+import com.example.backend_sis.service.MovimientoCamaService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/episodios")
+@RequiredArgsConstructor
+@CrossOrigin(origins = "*")
+public class MovimientoCamaController {
+
+    private final MovimientoCamaService movimientoCamaService;
+
+    @GetMapping("/{episodioId}/movimientos-cama")
+    public List<MovimientoCamaResponse> obtenerMovimientos(@PathVariable Long episodioId) {
+        return movimientoCamaService.obtenerPorEpisodio(episodioId);
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\controller\PacienteController.java
+==============================
+
+package com.example.backend_sis.controller;
+
+import com.example.backend_sis.dto.PacienteCreateRequest;
+import com.example.backend_sis.dto.PacienteResponse;
+import com.example.backend_sis.dto.PacienteUpdateRequest;
+import com.example.backend_sis.exception.BusinessException;
+import com.example.backend_sis.model.Paciente;
+import com.example.backend_sis.repository.PacienteRepository;
+import com.example.backend_sis.service.AdmisionService;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.*;
+import java.util.Date;
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/pacientes")
+@RequiredArgsConstructor
+public class PacienteController {
+
+    private final AdmisionService admisionService;
+    private final PacienteRepository pacienteRepository;
+
+    // US-2 + US-10: Alta paciente + creación automática HC
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public PacienteResponse crear(@Valid @RequestBody PacienteCreateRequest req) {
+        return admisionService.registrarPaciente(req);
+    }
+
+    // US-9: búsqueda simple por teclado (dni/nombre/apellido)
+    @GetMapping("/buscar")
+    public List<PacienteResponse> buscar(@RequestParam("q") String q) {
+        String term = (q == null) ? "" : q.trim();
+
+        List<Paciente> encontrados =
+                pacienteRepository.findTop20ByDniContainingIgnoreCaseOrNombreContainingIgnoreCaseOrApellidoContainingIgnoreCase(
+                        term, term, term
+                );
+
+        return encontrados.stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
+    @GetMapping("/{dni}")
+    public PacienteResponse obtenerPorDni(@PathVariable String dni) {
+        Paciente paciente = buscarPacientePorDni(dni);
+        return toResponse(paciente);
+    }
+
+    @PutMapping("/{dni}")
+    public PacienteResponse actualizarPorDni(@PathVariable String dni,
+                                             @Valid @RequestBody PacienteUpdateRequest req) {
+
+        Paciente paciente = buscarPacientePorDni(dni);
+
+        paciente.setNombre(normalizarTexto(req.getNombre()));
+        paciente.setApellido(normalizarTexto(req.getApellido()));
+        paciente.setFechaNacimiento(req.getFechaNacimiento());
+        paciente.setEdad(req.getEdad());
+        paciente.setEstadoPersona(req.getEstadoPersona());
+        paciente.setSexo(req.getSexo());
+        paciente.setFechaModificacion(new Date());
+
+        Paciente actualizado = pacienteRepository.save(paciente);
+        return toResponse(actualizado);
+    }
+
+    private Paciente buscarPacientePorDni(String dni) {
+        String limpio = limpiarDni(dni);
+
+        if (limpio.isBlank()) {
+            throw new BusinessException("DNI inválido");
+        }
+
+        return pacienteRepository.findByDni(limpio)
+                .orElseThrow(() -> new BusinessException("No existe paciente con DNI " + limpio));
+    }
+
+    private String limpiarDni(String dni) {
+        return (dni == null) ? "" : dni.replaceAll("[^0-9]", "");
+    }
+
+    private String normalizarTexto(String valor) {
+        return valor == null ? null : valor.trim();
+    }
+
+
+    private PacienteResponse toResponse(Paciente p) {
+        return PacienteResponse.builder()
+                .id(p.getId())
+                .dni(p.getDni())
+                .nombre(p.getNombre())
+                .apellido(p.getApellido())
+                .nroHistoriaClinica(p.getNroHistoriaClinica())
+                .fechaNacimiento(p.getFechaNacimiento())
+                .edad(p.getEdad())
+                .estadoPersona(p.getEstadoPersona())
+                .sexo(p.getSexo())
+                .fechaAlta(p.getFechaAlta())
+                .fechaModificacion(p.getFechaModificacion())
+                .build();
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\controller\ReconocimientoController.java
+==============================
+
+package com.example.backend_sis.controller;
+
+import com.example.backend_sis.dto.PacienteRostroMatchResponse;
+import com.example.backend_sis.dto.ReconocimientoAdminItemResponse;
+import com.example.backend_sis.dto.ReconocimientoRostroResponse;
+import com.example.backend_sis.service.ReconocimientoService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/reconocimiento")
+@RequiredArgsConstructor
+public class ReconocimientoController {
+
+    private final ReconocimientoService reconocimientoService;
+
+    @PostMapping(value = "/rostro/buscar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public PacienteRostroMatchResponse buscarPacientePorRostro(
+            @RequestPart("archivo") MultipartFile archivo
+    ) {
+        return reconocimientoService.buscarPacientePorRostro(archivo);
+    }
+
+    @PostMapping(value = "/rostro/{pacienteId}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public ReconocimientoRostroResponse registrarRostro(
+            @PathVariable Long pacienteId,
+            @RequestPart("archivo") MultipartFile archivo
+    ) {
+        return reconocimientoService.registrarRostro(pacienteId, archivo);
+    }
+
+    @GetMapping("/rostros/admin")
+    public List<ReconocimientoAdminItemResponse> listarRostrosAdmin() {
+        return reconocimientoService.listarRostrosAdmin();
+    }
+
+    @DeleteMapping("/rostros/{reconocimientoId}")
+    public Object eliminarRostroAdmin(@PathVariable Long reconocimientoId) {
+        reconocimientoService.eliminarRostroAdmin(reconocimientoId);
+        return "Registro biométrico eliminado correctamente";
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\controller\TurnoController.java
+==============================
+
+package com.example.backend_sis.controller;
+
+import com.example.backend_sis.dto.*;
+import com.example.backend_sis.model.EstadoTurno;
+import com.example.backend_sis.service.TurnoService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDate;
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/turnos")
+@RequiredArgsConstructor
+public class TurnoController {
+
+    private final TurnoService turnoService;
+
+    @PatchMapping("/{turnoId}/asignar-paciente")
+    public ResponseEntity<TurnoComprobanteResponse> asignarPaciente(
+            @PathVariable Long turnoId,
+            @RequestBody TurnoAsignarPacienteRequest request
+    ) {
+        return ResponseEntity.ok(turnoService.asignarPaciente(turnoId, request));
+    }
+
+    @PatchMapping("/{turnoId}/estado")
+    public ResponseEntity<TurnoListItemResponse> cambiarEstado(
+            @PathVariable Long turnoId,
+            @RequestBody TurnoCambiarEstadoRequest request
+    ) {
+        EstadoTurno nuevoEstado = request.getNuevoEstado();
+        Long usuarioId = request.getUsuarioId();
+        return ResponseEntity.ok(turnoService.cambiarEstado(turnoId, nuevoEstado, usuarioId));
+    }
+
+    @PatchMapping("/{turnoId}/reprogramar")
+    public ResponseEntity<TurnoListItemResponse> reprogramarTurno(
+            @PathVariable Long turnoId,
+            @RequestBody TurnoReprogramarRequest request
+    ) {
+        return ResponseEntity.ok(turnoService.reprogramarTurno(turnoId, request));
+    }
+
+    @GetMapping("/dia")
+    public ResponseEntity<List<TurnoListItemResponse>> listarTurnosDelDiaAdmin(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fecha,
+            @RequestParam(required = false) EstadoTurno estado
+    ) {
+        return ResponseEntity.ok(turnoService.listarTurnosDelDiaAdmin(fecha, estado));
+    }
+
+    @GetMapping("/filtrar")
+    public ResponseEntity<List<TurnoListItemResponse>> listarTurnosFiltradosAdmin(
+            @RequestParam Long agendaId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fecha,
+            @RequestParam(required = false) EstadoTurno estado
+    ) {
+        return ResponseEntity.ok(turnoService.listarTurnosFiltradosAdmin(agendaId, fecha, estado));
+    }
+
+    @GetMapping("/medico/{usuarioId}")
+    public ResponseEntity<List<TurnoListItemResponse>> listarTurnosDelDiaMedico(
+            @PathVariable Long usuarioId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fecha
+    ) {
+        return ResponseEntity.ok(turnoService.listarTurnosDelDiaMedico(usuarioId, fecha));
+    }
+
+    @GetMapping("/{turnoId}/comprobante")
+    public ResponseEntity<TurnoComprobanteResponse> obtenerComprobante(
+            @PathVariable Long turnoId
+    ) {
+        return ResponseEntity.ok(turnoService.obtenerComprobante(turnoId));
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\controller\UsuarioController.java
+==============================
+
+package com.example.backend_sis.controller;
+
+import com.example.backend_sis.dto.*;
+import com.example.backend_sis.model.Usuario;
+import com.example.backend_sis.service.UsuarioService;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/usuarios")
+public class UsuarioController {
+
+    private final UsuarioService usuarioService;
+
+    public UsuarioController(UsuarioService usuarioService) {
+        this.usuarioService = usuarioService;
+    }
+
+    @PostMapping("/registrar")
+    public ResponseEntity<?> registrar(@RequestBody UsuarioRequest request) {
+        try {
+            Usuario usuario = usuarioService.registrarUsuario(request);
+            return ResponseEntity.ok(usuario);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @GetMapping
+    public ResponseEntity<?> listarUsuarios() {
+        try {
+            return ResponseEntity.ok(usuarioService.listarUsuariosSinAdmin());
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @PutMapping("/{usuarioId}")
+    public ResponseEntity<?> actualizarUsuario(
+            @PathVariable Long usuarioId,
+            @RequestBody UsuarioAdminUpdateRequest request
+    ) {
+        try {
+            return ResponseEntity.ok(usuarioService.actualizarUsuarioAdmin(usuarioId, request));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @PutMapping("/{usuarioId}/password")
+    public ResponseEntity<?> cambiarPasswordAdmin(
+            @PathVariable Long usuarioId,
+            @RequestBody UsuarioAdminCambiarPasswordRequest request
+    ) {
+        try {
+            usuarioService.cambiarPasswordAdmin(usuarioId, request.getPasswordNueva());
+            return ResponseEntity.ok("Contraseña actualizada correctamente");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @PostMapping("/{usuarioId}/reset-password")
+    public ResponseEntity<?> reiniciarPassword(@PathVariable Long usuarioId) {
+        try {
+            return ResponseEntity.ok(usuarioService.reiniciarPasswordAdmin(usuarioId));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @GetMapping("/medicos")
+    public ResponseEntity<?> listarMedicos() {
+        try {
+            return ResponseEntity.ok(usuarioService.listarMedicos());
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @PutMapping("/me/password")
+    public ResponseEntity<?> cambiarPassword(
+            @RequestBody CambiarPasswordRequest request,
+            Authentication authentication
+    ) {
+        try {
+            String email = authentication.getName();
+
+            usuarioService.cambiarPassword(
+                    email,
+                    request.passwordActual,
+                    request.passwordNueva
+            );
+
+            return ResponseEntity.ok("Contraseña actualizada correctamente");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\AdminReconocimientoResponse.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.Builder;
+import lombok.Getter;
+
+@Getter
+@Builder
+public class AdminReconocimientoResponse {
+    private Long id;
+    private Long pacienteId;
+    private String pacienteDni;
+    private String pacienteNombreCompleto;
+    private String faceId;
+    private String externalImageId;
+    private String collectionId;
+    private String s3Bucket;
+    private String s3Key;
+    private String previewUrl;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\AgendaCreateRequest.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.Getter;
+import lombok.Setter;
+
+import java.util.List;
+
+@Getter
+@Setter
+public class AgendaCreateRequest {
+    private String nombre;
+    private String especialidad;
+    private Integer duracionTurnoMinutos;
+    private List<AgendaDiaAtencionRequest> diasAtencion;
+    private List<Long> medicoIdsConPermiso;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\AgendaDiaAtencionRequest.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.Getter;
+import lombok.Setter;
+
+import java.time.DayOfWeek;
+import java.time.LocalTime;
+
+@Getter
+@Setter
+public class AgendaDiaAtencionRequest {
+    private DayOfWeek diaSemana;
+    private LocalTime horaInicio;
+    private LocalTime horaFin;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\AgendaDiaAtencionResponse.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.Builder;
+import lombok.Getter;
+import lombok.Setter;
+
+import java.time.DayOfWeek;
+import java.time.LocalTime;
+
+@Getter
+@Setter
+@Builder
+public class AgendaDiaAtencionResponse {
+    private DayOfWeek diaSemana;
+    private LocalTime horaInicio;
+    private LocalTime horaFin;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\AgendaGenerarTurnosRequest.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.Getter;
+import lombok.Setter;
+
+import java.time.LocalDate;
+
+@Getter
+@Setter
+public class AgendaGenerarTurnosRequest {
+    private LocalDate fechaDesde;
+    private LocalDate fechaHasta;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\AgendaResponse.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.Builder;
+import lombok.Getter;
+import lombok.Setter;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Getter
+@Setter
+@Builder
+public class AgendaResponse {
+    private Long id;
+    private String nombre;
+    private String especialidad;
+    private Integer duracionTurnoMinutos;
+    private Boolean activa;
+    private LocalDateTime fechaCreacion;
+    private List<AgendaDiaAtencionResponse> diasAtencion;
+    private List<MedicoAgendaResponse> medicosConPermiso;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\CamaAdminRequest.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter
+public class CamaAdminRequest {
+    private String codigo;
+    private String descripcion;
+    private String tipoServicio;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\CamaAdminResponse.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.Builder;
+import lombok.Getter;
+
+@Getter
+@Builder
+public class CamaAdminResponse {
+    private Long id;
+    private String codigo;
+    private String descripcion;
+    private String tipoServicio;
+    private String estado;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\CamaResponse.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.Builder;
+import lombok.Getter;
+
+@Getter
+@Builder
+public class CamaResponse {
+    private Long id;
+    private String codigo;
+    private String descripcion;
+    private String estado;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\CambiarPasswordRequest.java
+==============================
+
+package com.example.backend_sis.dto;
+
+public class CambiarPasswordRequest {
+    public String passwordActual;
+    public String passwordNueva;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\EpisodioCambioCamaRequest.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class EpisodioCambioCamaRequest {
+    private Long nuevaCamaId;
+    private Long usuarioId;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\EpisodioCreateRequest.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import com.example.backend_sis.model.TipoServicio;
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter
+public class EpisodioCreateRequest {
+    private Long pacienteId;
+    private TipoServicio tipoServicio;
+    private Long usuarioId;
+    private Long camaId;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\EpisodioDetalleResponse.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import com.example.backend_sis.model.EstadoAtencion;
+import com.example.backend_sis.model.TipoServicio;
+import lombok.Builder;
+import lombok.Getter;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Getter
+@Builder
+public class EpisodioDetalleResponse {
+    private Long episodioId;
+    private TipoServicio tipoServicio;
+    private EstadoAtencion estadoAtencion;
+    private LocalDateTime fechaIngreso;
+    private LocalDateTime fechaEgreso;
+
+    private Long pacienteId;
+    private String dni;
+    private String nombre;
+    private String apellido;
+    private String nroHistoriaClinica;
+
+    private Long camaId;
+    private String camaCodigo;
+
+    private String observacionesHistoriaClinica;
+
+    private List<ObservacionEpisodioResponse> observaciones;
+    private List<EvolucionEpisodioResponse> evoluciones;
+    private List<ObservacionHistoriaClinicaResponse> historialObservacionesHistoriaClinica;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\EpisodioListItemResponse.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import com.example.backend_sis.model.EstadoAtencion;
+import com.example.backend_sis.model.TipoServicio;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.Setter;
+
+import java.time.LocalDateTime;
+
+@Getter
+@Setter
+@Builder
+public class EpisodioListItemResponse {
+    private Long episodioId;
+    private Long pacienteId;
+    private String dni;
+    private String nombre;
+    private String apellido;
+    private TipoServicio tipoServicio;
+    private EstadoAtencion estadoAtencion;
+    private LocalDateTime fechaIngreso;
+    private Long camaId;
+    private String camaCodigo;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\EpisodioUpdateEstadoRequest.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import com.example.backend_sis.model.EstadoAtencion;
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter
+public class EpisodioUpdateEstadoRequest {
+    private EstadoAtencion nuevoEstado;
+    private Long usuarioId;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\EvolucionEpisodioCreateRequest.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter
+public class EvolucionEpisodioCreateRequest {
+    private Long usuarioId;
+    private String diagnosticos;
+    private String evolucion;
+    private String medicacionIndicaciones;
+    private String estudiosSolicitados;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\EvolucionEpisodioResponse.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.Builder;
+import lombok.Getter;
+
+import java.time.LocalDateTime;
+
+@Getter
+@Builder
+public class EvolucionEpisodioResponse {
+    private Long id;
+    private String diagnosticos;
+    private String evolucion;
+    private String medicacionIndicaciones;
+    private String estudiosSolicitados;
+    private LocalDateTime fechaRegistro;
+    private Long usuarioId;
+    private String nombreUsuario;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\HistoriaClinicaResponse.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.Builder;
+import lombok.Getter;
+
+import java.time.LocalDateTime;
+
+@Getter
+@Builder
+public class HistoriaClinicaResponse {
+
+    private Long id;
+    private LocalDateTime fechaCreacion;
+    private String observaciones;
+
+    private PacienteResumen paciente;
+
+    @Getter
+    @Builder
+    public static class PacienteResumen {
+        private Long id;
+        private String dni;
+        private String nombre;
+        private String apellido;
+        private String nroHistoriaClinica;
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\HistoriaClinicaUpdateObservacionesRequest.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter
+public class HistoriaClinicaUpdateObservacionesRequest {
+    private String observaciones;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\LoginRequest.java
+==============================
+
+package com.example.backend_sis.dto;
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter
+public class LoginRequest {
+    public String email;
+    public String password;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\LoginResponse.java
+==============================
+
+package com.example.backend_sis.dto;
+
+public class LoginResponse {
+    public Long id;
+    public String token;
+    public String email;
+    public String rol;
+    public String nombre;
+    public String apellido;
+    public Boolean debeCambiarPassword;
+
+
+    public LoginResponse(Long id,String token, String email, String rol, String nombre, String apellido, Boolean debeCambiarPassword) {
+        this.id = id;
+        this.token = token;
+        this.email = email;
+        this.rol = rol;
+        this.nombre = nombre;
+        this.apellido = apellido;
+        this.debeCambiarPassword = debeCambiarPassword;
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\MedicoAgendaResponse.java
+==============================
+
+package com.example.backend_sis.dto;
+
+
+import lombok.Builder;
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter
+@Builder
+public class MedicoAgendaResponse {
+    private Long usuarioId;
+    private String nombreCompleto;
+    private String email;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\MovimientoCamaResponse.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import com.example.backend_sis.model.TipoMovimientoCama;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDateTime;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class MovimientoCamaResponse {
+
+    private Long id;
+    private Long episodioId;
+
+    private Long camaOrigenId;
+    private String camaOrigenCodigo;
+
+    private Long camaDestinoId;
+    private String camaDestinoCodigo;
+
+    private Long usuarioId;
+    private String usuarioNombreCompleto;
+
+    private TipoMovimientoCama tipoMovimiento;
+    private LocalDateTime fechaMovimiento;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\ObservacionEpisodioCreateRequest.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter
+public class ObservacionEpisodioCreateRequest {
+    private Long usuarioId;
+    private String observacion;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\ObservacionEpisodioResponse.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.Builder;
+import lombok.Getter;
+
+import java.time.LocalDateTime;
+
+@Getter
+@Builder
+public class ObservacionEpisodioResponse {
+    private Long id;
+    private String observacion;
+    private LocalDateTime fechaRegistro;
+    private Long usuarioId;
+    private String nombreUsuario;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\ObservacionHistoriaClinicaCreateRequest.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter
+public class ObservacionHistoriaClinicaCreateRequest {
+    private Long usuarioId;
+    private String observacion;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\ObservacionHistoriaClinicaResponse.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.Builder;
+import lombok.Getter;
+
+import java.time.LocalDateTime;
+
+@Getter
+@Builder
+public class ObservacionHistoriaClinicaResponse {
+    private Long id;
+    private String observacion;
+    private LocalDateTime fechaRegistro;
+    private Long usuarioId;
+    private String nombreUsuario;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\PacienteCreateRequest.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter
+public class PacienteCreateRequest {
+
+    @NotBlank(message = "El nombre es obligatorio")
+    @Size(max = 120)
+    private String nombre;
+
+    @NotBlank(message = "El apellido es obligatorio")
+    @Size(max = 120)
+    private String apellido;
+
+    @NotBlank(message = "El DNI es obligatorio")
+    @Size(max = 20)
+    private String dni;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\PacienteResponse.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import com.example.backend_sis.model.Paciente;
+import lombok.Builder;
+import lombok.Getter;
+
+import java.time.LocalDate;
+import java.util.Date;
+
+@Getter
+@Builder
+public class PacienteResponse {
+
+    private Long id;
+    private String nombre;
+    private String apellido;
+    private String dni;
+    private String nroHistoriaClinica;
+    private LocalDate fechaNacimiento;
+    private Integer edad;
+    private Paciente.tipoSexo sexo;
+    private Paciente.EstadoPersona estadoPersona;
+    private Date fechaAlta;
+    private Date fechaModificacion;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\PacienteRostroMatchResponse.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import com.example.backend_sis.model.Paciente;
+import lombok.Builder;
+import lombok.Getter;
+
+import java.time.LocalDate;
+import java.util.Date;
+
+@Getter
+@Builder
+public class PacienteRostroMatchResponse {
+    private Long id;
+    private String dni;
+    private String nombre;
+    private String apellido;
+    private String nroHistoriaClinica;
+    private LocalDate fechaNacimiento;
+    private Integer edad;
+    private Paciente.tipoSexo sexo;
+    private Paciente.EstadoPersona estadoPersona;
+    private Date fechaAlta;
+    private Date fechaModificacion;
+    private String referenciaBiometrica;
+    private Float similitud;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\PacienteUpdateRequest.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import com.example.backend_sis.model.Paciente;
+import java.time.LocalDate;
+import com.fasterxml.jackson.annotation.JsonFormat;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+import lombok.Getter;
+import lombok.Setter;
+
+import java.util.Date;
+
+@Getter
+@Setter
+public class PacienteUpdateRequest {
+
+    @NotBlank(message = "El nombre es obligatorio")
+    @Size(max = 120, message = "El nombre no puede superar los 120 caracteres")
+    private String nombre;
+
+    @NotBlank(message = "El apellido es obligatorio")
+    @Size(max = 120, message = "El apellido no puede superar los 120 caracteres")
+    private String apellido;
+
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private LocalDate fechaNacimiento;
+
+    private Integer edad;
+
+    private Paciente.tipoSexo sexo;
+
+    private Paciente.EstadoPersona estadoPersona;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\ReconocimientoAdminItemResponse.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.Builder;
+import lombok.Getter;
+
+@Getter
+@Builder
+public class ReconocimientoAdminItemResponse {
+
+    private Long id;
+    private Long pacienteId;
+    private String pacienteDni;
+    private String pacienteNombreCompleto;
+    private String faceId;
+    private String externalImageId;
+    private String s3Bucket;
+    private String s3Key;
+    private String collectionId;
+    private String previewUrl;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\ReconocimientoRostroResponse.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import com.example.backend_sis.model.Reconocimiento;
+import lombok.Builder;
+import lombok.Getter;
+
+import java.util.Date;
+
+@Getter
+@Builder
+public class ReconocimientoRostroResponse {
+
+    private Long id;
+    private Long pacienteId;
+    private String pacienteDni;
+    private String pacienteNombreCompleto;
+    private Reconocimiento.TipoBiometria tipoBiometria;
+    private String proveedor;
+    private String referenciaBiometrica;
+    private String collectionId;
+    private String externalImageId;
+    private String s3Bucket;
+    private String s3Key;
+    private Date fechaCaptura;
+    private Date fechaVinculoPaciente;
+}
+
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\TurnoAsignarPacienteRequest.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter
+public class TurnoAsignarPacienteRequest {
+    private Long pacienteId;
+    private String observacion;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\TurnoCambiarEstadoRequest.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import com.example.backend_sis.model.EstadoTurno;
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter
+public class TurnoCambiarEstadoRequest {
+    private EstadoTurno nuevoEstado;
+    private Long usuarioId;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\TurnoComprobanteResponse.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.Builder;
+import lombok.Getter;
+import lombok.Setter;
+
+import java.util.List;
+import java.time.LocalDate;
+import java.time.LocalTime;
+
+@Getter
+@Setter
+@Builder
+public class TurnoComprobanteResponse {
+    private Long turnoId;
+    private String agendaNombre;
+    private String especialidad;
+    private LocalDate fecha;
+    private LocalTime horaDesde;
+    private LocalTime horaHasta;
+    private String pacienteDni;
+    private String pacienteNombreCompleto;
+    private List<String> medicosAgenda;
+    private String observacion;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\TurnoListItemResponse.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import com.example.backend_sis.model.EstadoTurno;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.Setter;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.util.List;
+
+@Getter
+@Setter
+@Builder
+public class TurnoListItemResponse {
+    private Long turnoId;
+    private Long agendaId;
+    private String agendaNombre;
+    private String especialidad;
+    private LocalDate fecha;
+    private LocalTime horaDesde;
+    private LocalTime horaHasta;
+    private EstadoTurno estadoTurno;
+    private Long pacienteId;
+    private String pacienteDni;
+    private String pacienteNombre;
+    private String pacienteApellido;
+    private Long episodioId;
+    private LocalDateTime fechaReserva;
+    private LocalDateTime fechaLlegada;
+    private List<String> medicosAgenda;
+    private String observacion;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\TurnoReprogramarRequest.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter
+public class TurnoReprogramarRequest {
+    private Long nuevoTurnoId;
+    private Long usuarioId;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\UsuarioAdminCambiarPasswordRequest.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter
+public class UsuarioAdminCambiarPasswordRequest {
+    private String passwordNueva;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\UsuarioAdminListResponse.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.Builder;
+import lombok.Getter;
+
+@Getter
+@Builder
+public class UsuarioAdminListResponse {
+    private Long id;
+    private String nombre;
+    private String apellido;
+    private String cuit;
+    private String email;
+    private String rol;
+    private Boolean debeCambiarPassword;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\UsuarioAdminResetPasswordResponse.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.Builder;
+import lombok.Getter;
+
+@Getter
+@Builder
+public class UsuarioAdminResetPasswordResponse {
+    private Long usuarioId;
+    private String email;
+    private String passwordTemporal;
+    private Boolean debeCambiarPassword;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\UsuarioAdminUpdateRequest.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter
+public class UsuarioAdminUpdateRequest {
+    private String nombre;
+    private String apellido;
+    private String cuit;
+    private String email;
+    private String rol;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\UsuarioMedicoOptionResponse.java
+==============================
+
+package com.example.backend_sis.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class UsuarioMedicoOptionResponse {
+
+    private Long id;
+    private String nombreCompleto;
+    private String email;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\dto\UsuarioRequest.java
+==============================
+
+package com.example.backend_sis.dto;
+
+public class UsuarioRequest {
+
+    public String nombre;
+    public String apellido;
+    public String cuit;
+    public String email;
+    public String password;
+    public String rol;
+
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\exception\BusinessException.java
+==============================
+
+package com.example.backend_sis.exception;
+
+public class BusinessException extends RuntimeException {
+
+    public BusinessException(String message) {
+        super(message);
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\exception\GlobalExceptionHandler.java
+==============================
+
+package com.example.backend_sis.exception;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
+
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(BusinessException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Map<String, Object> handleBusiness(BusinessException ex) {
+        return Map.of(
+                "error", ex.getMessage()
+        );
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\model\Agenda.java
+==============================
+
+package com.example.backend_sis.model;
+
+import jakarta.persistence.*;
+import lombok.*;
+
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+
+@Entity
+@Table(name = "agenda")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class Agenda {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, length = 120)
+    private String nombre;
+
+    @Column(nullable = false, length = 120)
+    private String especialidad;
+
+    @Column(nullable = false)
+    private Integer duracionTurnoMinutos;
+
+    @Column(nullable = false)
+    private Boolean activa;
+
+    @Column(nullable = false)
+    private LocalDateTime fechaCreacion;
+
+    @OneToMany(mappedBy = "agenda", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<AgendaDiaAtencion> diasAtencion = new ArrayList<>();
+
+    @OneToMany(mappedBy = "agenda", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<AgendaPermisoMedico> permisosMedicos = new ArrayList<>();
+
+    @PrePersist
+    public void prePersist() {
+        if (activa == null) {
+            activa = true;
+        }
+        if (fechaCreacion == null) {
+            fechaCreacion = LocalDateTime.now();
+        }
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\model\AgendaDiaAtencion.java
+==============================
+
+package com.example.backend_sis.model;
+
+import jakarta.persistence.*;
+import lombok.*;
+
+import java.time.DayOfWeek;
+import java.time.LocalTime;
+
+@Entity
+@Table(name = "agenda_dia_atencion")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class AgendaDiaAtencion {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(optional = false)
+    @JoinColumn(name = "agenda_id", nullable = false)
+    private Agenda agenda;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "dia_semana", nullable = false, length = 20)
+    private DayOfWeek diaSemana;
+
+    @Column(name = "hora_inicio", nullable = false)
+    private LocalTime horaInicio;
+
+    @Column(name = "hora_fin", nullable = false)
+    private LocalTime horaFin;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\model\AgendaPermisoMedico.java
+==============================
+
+package com.example.backend_sis.model;
+
+import jakarta.persistence.*;
+import lombok.*;
+
+@Entity
+@Table(
+        name = "agenda_permiso_medico",
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uk_agenda_permiso_medico", columnNames = {"agenda_id", "usuario_id"})
+        }
+)
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class AgendaPermisoMedico {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(optional = false)
+    @JoinColumn(name = "agenda_id", nullable = false)
+    private Agenda agenda;
+
+    @ManyToOne(optional = false)
+    @JoinColumn(name = "usuario_id", nullable = false)
+    private Usuario usuario;
+
+    @Column(nullable = false)
+    private Boolean activo;
+
+    @PrePersist
+    public void prePersist() {
+        if (activo == null) {
+            activo = true;
+        }
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\model\Cama.java
+==============================
+
+package com.example.backend_sis.model;
+
+import jakarta.persistence.*;
+import lombok.*;
+
+@Entity
+@Table(name = "cama")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class Cama {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "codigo", nullable = false, unique = true, length = 50)
+    private String codigo;
+
+    @Column(name = "descripcion", length = 255)
+    private String descripcion;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "estado", nullable = false, length = 20)
+    private EstadoCama estado;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "tipo_servicio", nullable = false, length = 30)
+    private TipoServicio tipoServicio;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\model\Episodio.java
+==============================
+
+package com.example.backend_sis.model;
+
+import jakarta.persistence.*;
+import lombok.*;
+
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "episodio")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class Episodio {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(optional = false)
+    @JoinColumn(name = "paciente_id", nullable = false)
+    private Paciente paciente;
+
+    @ManyToOne
+    @JoinColumn(name = "usuario_id")
+    private Usuario usuario;
+
+    @ManyToOne
+    @JoinColumn(name = "cama_id")
+    private Cama cama;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "tipo_servicio", nullable = false, length = 20)
+    private TipoServicio tipoServicio;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "estado_atencion", nullable = false, length = 20)
+    private EstadoAtencion estadoAtencion;
+
+    @Column(name = "fecha_ingreso", nullable = false)
+    private LocalDateTime fechaIngreso;
+
+    @Column(name = "fecha_egreso")
+    private LocalDateTime fechaEgreso;
+
+    @PrePersist
+    public void prePersist() {
+        if (fechaIngreso == null) {
+            fechaIngreso = LocalDateTime.now();
+        }
+        if (estadoAtencion == null) {
+            estadoAtencion = EstadoAtencion.EN_ESPERA;
+        }
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\model\EstadoAtencion.java
+==============================
+
+package com.example.backend_sis.model;
+
+public enum EstadoAtencion {
+    EN_ESPERA,
+    EN_ATENCION,
+    FINALIZADO,
+    ALTA
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\model\EstadoCama.java
+==============================
+
+package com.example.backend_sis.model;
+
+public enum EstadoCama {
+    DISPONIBLE,
+    OCUPADA,
+    INACTIVA
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\model\EstadoTurno.java
+==============================
+
+package com.example.backend_sis.model;
+
+public enum EstadoTurno {
+    DISPONIBLE,
+    CITADO,
+    EN_ESPERA,
+    EN_ATENCION,
+    FINALIZADO,
+    ALTA,
+    AUSENTE,
+    CANCELADO,
+    REPROGRAMADO
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\model\EvolucionEpisodio.java
+==============================
+
+package com.example.backend_sis.model;
+
+import jakarta.persistence.*;
+import lombok.*;
+
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "evolucion_episodio")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class EvolucionEpisodio {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
+    @JoinColumn(name = "episodio_id", nullable = false)
+    private Episodio episodio;
+
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
+    @JoinColumn(name = "usuario_id", nullable = false)
+    private Usuario usuario;
+
+    @Column(name = "fecha_registro", nullable = false)
+    private LocalDateTime fechaRegistro;
+
+    @Column(name = "diagnosticos", columnDefinition = "TEXT")
+    private String diagnosticos;
+
+    @Column(name = "evolucion", columnDefinition = "TEXT")
+    private String evolucion;
+
+    @Column(name = "medicacion_indicaciones", columnDefinition = "TEXT")
+    private String medicacionIndicaciones;
+
+    @Column(name = "estudios_solicitados", columnDefinition = "TEXT")
+    private String estudiosSolicitados;
+
+    @PrePersist
+    public void prePersist() {
+        if (fechaRegistro == null) {
+            fechaRegistro = LocalDateTime.now();
+        }
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\model\HistoriaClinica.java
+==============================
+
+package com.example.backend_sis.model;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import jakarta.persistence.*;
+import lombok.*;
+
+import java.time.LocalDateTime;
+
+@Entity
+@Table(
+        name = "historias_clinicas",
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uk_hc_paciente_id", columnNames = "paciente_id")
+        }
+)
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class HistoriaClinica {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    // FK UNIQUE => 1 a 1 real
+    @JsonIgnore
+    @OneToOne(optional = false, fetch = FetchType.LAZY)
+    @JoinColumn(name = "paciente_id", nullable = false, unique = true)
+    private Paciente paciente;
+
+    @Column(name = "fecha_creacion", nullable = false)
+    private LocalDateTime fechaCreacion;
+
+    @Column(length = 2000)
+    private String observaciones;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\model\MovimientoCama.java
+==============================
+
+package com.example.backend_sis.model;
+
+import com.example.backend_sis.model.TipoMovimientoCama;
+import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "movimiento_cama")
+@Getter
+@Setter
+@NoArgsConstructor
+public class MovimientoCama {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
+    @JoinColumn(name = "episodio_id", nullable = false)
+    private Episodio episodio;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "cama_origen_id")
+    private Cama camaOrigen;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "cama_destino_id")
+    private Cama camaDestino;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "usuario_id")
+    private Usuario usuario;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "tipo_movimiento", nullable = false, length = 20)
+    private TipoMovimientoCama tipoMovimiento;
+
+    @Column(name = "fecha_movimiento", nullable = false)
+    private LocalDateTime fechaMovimiento;
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\model\ObservacionEpisodio.java
+==============================
+
+package com.example.backend_sis.model;
+
+import jakarta.persistence.*;
+import lombok.*;
+
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "observacion_episodio")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class ObservacionEpisodio {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
+    @JoinColumn(name = "episodio_id", nullable = false)
+    private Episodio episodio;
+
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
+    @JoinColumn(name = "usuario_id", nullable = false)
+    private Usuario usuario;
+
+    @Column(name = "fecha_registro", nullable = false)
+    private LocalDateTime fechaRegistro;
+
+    @Column(name = "observacion", nullable = false, columnDefinition = "TEXT")
+    private String observacion;
+
+    @PrePersist
+    public void prePersist() {
+        if (fechaRegistro == null) {
+            fechaRegistro = LocalDateTime.now();
+        }
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\model\ObservacionHistoriaClinica.java
+==============================
+
+package com.example.backend_sis.model;
+
+import jakarta.persistence.*;
+import lombok.*;
+
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "observacion_historia_clinica")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class ObservacionHistoriaClinica {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
+    @JoinColumn(name = "historia_clinica_id", nullable = false)
+    private HistoriaClinica historiaClinica;
+
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
+    @JoinColumn(name = "usuario_id", nullable = false)
+    private Usuario usuario;
+
+    @Column(name = "observacion", nullable = false, length = 4000)
+    private String observacion;
+
+    @Column(name = "fecha_registro", nullable = false)
+    private LocalDateTime fechaRegistro;
+
+    @PrePersist
+    public void prePersist() {
+        if (fechaRegistro == null) {
+            fechaRegistro = LocalDateTime.now();
+        }
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\model\Paciente.java
+==============================
+
+package com.example.backend_sis.model;
+
+import jakarta.persistence.*;
+import lombok.*;
+
+import java.time.LocalDate;
+import java.util.Date;
+import java.util.List;
+
+@Entity
+@Table(
+        name = "paciente",
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uk_paciente_dni", columnNames = "dni"),
+                @UniqueConstraint(name = "uk_paciente_nro_hc", columnNames = "nroHistoriaClinica")
+        }
+)
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class Paciente {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(unique = true, nullable = false)
+    private String dni;
+
+    @Column(nullable = false)
+    private String nombre;
+
+    @Column(nullable = false)
+    private String apellido;
+
+    private LocalDate fechaNacimiento;
+
+    private Integer edad;
+
+    @Enumerated(EnumType.STRING)
+    private tipoSexo sexo;
+
+    @Enumerated(EnumType.STRING)
+    private EstadoPersona estadoPersona;
+
+    @Column(unique = true)
+    private String nroHistoriaClinica;
+
+    @Temporal(TemporalType.TIMESTAMP)
+    private Date fechaAlta;
+
+    @Temporal(TemporalType.TIMESTAMP)
+    private Date fechaModificacion;
+
+    @OneToMany(mappedBy = "paciente", cascade = CascadeType.ALL)
+    private List<Reconocimiento> reconocimientos;
+
+    @OneToOne(mappedBy = "paciente",
+            cascade = CascadeType.ALL,
+            orphanRemoval = true,
+            fetch = FetchType.LAZY)
+    private HistoriaClinica historiaClinica;
+
+    public enum EstadoPersona {
+        VIVO, FALLECIDO
+    }
+
+    public enum tipoSexo {
+        MASCULINO, FEMENINO
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\model\Reconocimiento.java
+==============================
+
+package com.example.backend_sis.model;
+
+import jakarta.persistence.*;
+import java.util.Date;
+
+@Entity
+@Table(
+        name = "reconocimiento",
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uk_reconocimiento_face_id", columnNames = "referenciaBiometrica")
+        }
+)
+public class Reconocimiento {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, length = 255)
+    private String referenciaBiometrica;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 50)
+    private TipoBiometria tipoBiometria;
+
+    @Column(length = 255)
+    private String proveedor;
+
+    @Column(length = 255)
+    private String collectionId;
+
+    @Column(length = 255)
+    private String externalImageId;
+
+    @Column(length = 255)
+    private String s3Bucket;
+
+    @Column(length = 500)
+    private String s3Key;
+
+    @Temporal(TemporalType.TIMESTAMP)
+    @Column(nullable = false)
+    private Date fechaCaptura;
+
+    @Temporal(TemporalType.TIMESTAMP)
+    private Date fechaVinculoPaciente;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "paciente_id", nullable = false)
+    private Paciente paciente;
+
+    public enum TipoBiometria {
+        HUELLA_DACTILAR,
+        ROSTRO
+    }
+
+    public Reconocimiento() {
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public String getReferenciaBiometrica() {
+        return referenciaBiometrica;
+    }
+
+    public void setReferenciaBiometrica(String referenciaBiometrica) {
+        this.referenciaBiometrica = referenciaBiometrica;
+    }
+
+    public TipoBiometria getTipoBiometria() {
+        return tipoBiometria;
+    }
+
+    public void setTipoBiometria(TipoBiometria tipoBiometria) {
+        this.tipoBiometria = tipoBiometria;
+    }
+
+    public String getProveedor() {
+        return proveedor;
+    }
+
+    public void setProveedor(String proveedor) {
+        this.proveedor = proveedor;
+    }
+
+    public String getCollectionId() {
+        return collectionId;
+    }
+
+    public void setCollectionId(String collectionId) {
+        this.collectionId = collectionId;
+    }
+
+    public String getExternalImageId() {
+        return externalImageId;
+    }
+
+    public void setExternalImageId(String externalImageId) {
+        this.externalImageId = externalImageId;
+    }
+
+    public String getS3Bucket() {
+        return s3Bucket;
+    }
+
+    public void setS3Bucket(String s3Bucket) {
+        this.s3Bucket = s3Bucket;
+    }
+
+    public String getS3Key() {
+        return s3Key;
+    }
+
+    public void setS3Key(String s3Key) {
+        this.s3Key = s3Key;
+    }
+
+    public Date getFechaCaptura() {
+        return fechaCaptura;
+    }
+
+    public void setFechaCaptura(Date fechaCaptura) {
+        this.fechaCaptura = fechaCaptura;
+    }
+
+    public Date getFechaVinculoPaciente() {
+        return fechaVinculoPaciente;
+    }
+
+    public void setFechaVinculoPaciente(Date fechaVinculoPaciente) {
+        this.fechaVinculoPaciente = fechaVinculoPaciente;
+    }
+
+    public Paciente getPaciente() {
+        return paciente;
+    }
+
+    public void setPaciente(Paciente paciente) {
+        this.paciente = paciente;
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\model\TipoMovimientoCama.java
+==============================
+
+package com.example.backend_sis.model;
+
+public enum TipoMovimientoCama {
+    INGRESO,
+    TRASLADO,
+    ALTA
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\model\TipoServicio.java
+==============================
+
+package com.example.backend_sis.model;
+
+public enum TipoServicio {
+    GUARDIA,
+    CONSULTORIOS,
+    HOSPITALIZACION
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\model\Turno.java
+==============================
+
+package com.example.backend_sis.model;
+
+import jakarta.persistence.*;
+import lombok.*;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+
+@Entity
+@Table(name = "turno")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class Turno {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(optional = false)
+    @JoinColumn(name = "agenda_id", nullable = false)
+    private Agenda agenda;
+
+    @ManyToOne
+    @JoinColumn(name = "paciente_id")
+    private Paciente paciente;
+
+    @OneToOne
+    @JoinColumn(name = "episodio_id", unique = true)
+    private Episodio episodio;
+
+    @Column(nullable = false)
+    private LocalDate fecha;
+
+    @Column(name = "hora_desde", nullable = false)
+    private LocalTime horaDesde;
+
+    @Column(name = "hora_hasta", nullable = false)
+    private LocalTime horaHasta;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "estado_turno", nullable = false, length = 20)
+    private EstadoTurno estadoTurno;
+
+    @Column(name = "fecha_reserva")
+    private LocalDateTime fechaReserva;
+
+    @Column(name = "fecha_llegada")
+    private LocalDateTime fechaLlegada;
+
+    @Column(name = "observacion", length = 300)
+    private String observacion;
+
+    @PrePersist
+    public void prePersist() {
+        if (estadoTurno == null) {
+            estadoTurno = EstadoTurno.DISPONIBLE;
+        }
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\model\Usuario.java
+==============================
+
+package com.example.backend_sis.model;
+
+import jakarta.persistence.*;
+import lombok.*;
+
+@Entity
+@Table(name = "usuarios")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class Usuario {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String nombre;
+
+    private String apellido;
+
+    @Column(unique = true)
+    private String cuit;
+
+    @Column(unique = true)
+    private String email;
+
+    @Column(nullable = false)
+    private String password;
+
+    @Enumerated(EnumType.STRING)
+    private Rol rol;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private Boolean debeCambiarPassword = false;
+
+    public enum Rol {
+        ADMIN,
+        MEDICO,
+        ADMINISTRATIVO
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\repository\AgendaDiaAtencionRepository.java
+==============================
+
+package com.example.backend_sis.repository;
+
+import com.example.backend_sis.model.AgendaDiaAtencion;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
+
+public interface AgendaDiaAtencionRepository extends JpaRepository<AgendaDiaAtencion, Long> {
+    List<AgendaDiaAtencion> findByAgenda_Id(Long agendaId);
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\repository\AgendaPermisoMedicoRepository.java
+==============================
+
+package com.example.backend_sis.repository;
+
+import com.example.backend_sis.model.AgendaPermisoMedico;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
+
+public interface AgendaPermisoMedicoRepository extends JpaRepository<AgendaPermisoMedico, Long> {
+
+    boolean existsByAgenda_IdAndUsuario_IdAndActivoTrue(Long agendaId, Long usuarioId);
+
+    List<AgendaPermisoMedico> findByAgenda_IdAndActivoTrue(Long agendaId);
+
+    List<AgendaPermisoMedico> findByUsuario_IdAndActivoTrue(Long usuarioId);
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\repository\AgendaRepository.java
+==============================
+
+package com.example.backend_sis.repository;
+
+import com.example.backend_sis.model.Agenda;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface AgendaRepository extends JpaRepository<Agenda, Long> {
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\repository\CamaRepository.java
+==============================
+
+package com.example.backend_sis.repository;
+
+import com.example.backend_sis.model.Cama;
+import com.example.backend_sis.model.EstadoCama;
+import com.example.backend_sis.model.TipoServicio;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
+
+public interface CamaRepository extends JpaRepository<Cama, Long> {
+
+    List<Cama> findByTipoServicioAndEstadoOrderByCodigoAsc(TipoServicio tipoServicio, EstadoCama estado);
+
+    List<Cama> findAllByOrderByCodigoAsc();
+
+    boolean existsByCodigoIgnoreCase(String codigo);
+
+    boolean existsByCodigoIgnoreCaseAndIdNot(String codigo, Long id);
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\repository\EpisodioRepository.java
+==============================
+
+package com.example.backend_sis.repository;
+import com.example.backend_sis.model.Episodio;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import com.example.backend_sis.model.EstadoAtencion;
+import com.example.backend_sis.model.TipoServicio;
+
+
+import java.util.Collection;
+import java.util.List;
+public interface EpisodioRepository extends JpaRepository<Episodio, Long> {
+
+    List<Episodio> findByTipoServicioAndEstadoAtencionInOrderByFechaIngresoDesc(
+            TipoServicio tipoServicio,
+            Collection<EstadoAtencion> estados
+    );
+
+    boolean existsByPaciente_IdAndEstadoAtencionIn(
+            Long pacienteId,
+            Collection<EstadoAtencion> estados
+    );
+
+    List<Episodio> findByPaciente_DniOrderByFechaIngresoDesc(String dni);
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\repository\EvolucionEpisodioRepository.java
+==============================
+
+package com.example.backend_sis.repository;
+
+import com.example.backend_sis.model.EvolucionEpisodio;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
+
+public interface EvolucionEpisodioRepository extends JpaRepository<EvolucionEpisodio, Long> {
+
+    List<EvolucionEpisodio> findByEpisodioIdOrderByFechaRegistroDesc(Long episodioId);
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\repository\HistoriaClinicaRepository.java
+==============================
+
+package com.example.backend_sis.repository;
+
+import com.example.backend_sis.model.HistoriaClinica;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.Optional;
+
+public interface HistoriaClinicaRepository extends JpaRepository<HistoriaClinica, Long> {
+
+    Optional<HistoriaClinica> findByPaciente_Dni(String dni);
+
+    Optional<HistoriaClinica> findByPaciente_Id(Long pacienteId);
+
+
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\repository\MovimientoCamaRepository.java
+==============================
+
+package com.example.backend_sis.repository;
+
+import com.example.backend_sis.model.MovimientoCama;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
+
+public interface MovimientoCamaRepository extends JpaRepository<MovimientoCama, Long> {
+
+    List<MovimientoCama> findByEpisodioIdOrderByFechaMovimientoAsc(Long episodioId);
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\repository\ObservacionEpisodioRepository.java
+==============================
+
+package com.example.backend_sis.repository;
+
+import com.example.backend_sis.model.ObservacionEpisodio;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
+
+public interface ObservacionEpisodioRepository extends JpaRepository<ObservacionEpisodio, Long> {
+
+    List<ObservacionEpisodio> findByEpisodioIdOrderByFechaRegistroDesc(Long episodioId);
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\repository\ObservacionHistoriaClinicaRepository.java
+==============================
+
+package com.example.backend_sis.repository;
+
+import com.example.backend_sis.model.ObservacionHistoriaClinica;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
+
+public interface ObservacionHistoriaClinicaRepository
+        extends JpaRepository<ObservacionHistoriaClinica, Long> {
+
+    List<ObservacionHistoriaClinica> findByHistoriaClinicaIdOrderByFechaRegistroDesc(Long historiaClinicaId);
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\repository\PacienteRepository.java
+==============================
+
+package com.example.backend_sis.repository;
+
+import com.example.backend_sis.model.Paciente;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
+import java.util.Optional;
+
+public interface PacienteRepository extends JpaRepository<Paciente, Long> {
+
+    Optional<Paciente> findByDni(String dni);
+
+    // Búsqueda simple tipo “teclado” (US-9)
+    List<Paciente> findTop20ByDniContainingIgnoreCaseOrNombreContainingIgnoreCaseOrApellidoContainingIgnoreCase(
+            String dni, String nombre, String apellido
+    );
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\repository\ReconocimientoRepository.java
+==============================
+
+package com.example.backend_sis.repository;
+
+import com.example.backend_sis.model.Reconocimiento;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
+import java.util.Optional;
+
+public interface ReconocimientoRepository extends JpaRepository<Reconocimiento, Long> {
+    boolean existsByPacienteIdAndTipoBiometria(Long pacienteId, Reconocimiento.TipoBiometria tipoBiometria);
+
+    Optional<Reconocimiento> findByPacienteIdAndTipoBiometria(Long pacienteId, Reconocimiento.TipoBiometria tipoBiometria);
+
+    Optional<Reconocimiento> findByReferenciaBiometricaAndTipoBiometria(
+            String referenciaBiometrica,
+            Reconocimiento.TipoBiometria tipoBiometria
+    );
+
+    List<Reconocimiento> findByTipoBiometriaOrderByIdDesc(Reconocimiento.TipoBiometria tipoBiometria);
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\repository\TurnoRepository.java
+==============================
+
+package com.example.backend_sis.repository;
+
+import com.example.backend_sis.model.EstadoTurno;
+import com.example.backend_sis.model.Turno;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.util.Collection;
+import java.util.List;
+
+public interface TurnoRepository extends JpaRepository<Turno, Long> {
+
+    boolean existsByAgenda_IdAndFechaAndHoraDesde(Long agendaId, LocalDate fecha, LocalTime horaDesde);
+
+    List<Turno> findByAgenda_IdAndFechaOrderByHoraDesdeAsc(Long agendaId, LocalDate fecha);
+
+    List<Turno> findByFechaOrderByHoraDesdeAsc(LocalDate fecha);
+
+    List<Turno> findByFechaAndEstadoTurnoInOrderByHoraDesdeAsc(LocalDate fecha, Collection<EstadoTurno> estados);
+
+    List<Turno> findByAgenda_IdAndFechaAndEstadoTurnoOrderByHoraDesdeAsc(Long agendaId, LocalDate fecha, EstadoTurno estadoTurno);
+
+    @Query("""
+            select t
+            from Turno t
+            join AgendaPermisoMedico ap on ap.agenda.id = t.agenda.id
+            where ap.usuario.id = :usuarioId
+              and ap.activo = true
+              and t.fecha = :fecha
+            order by t.horaDesde asc
+            """)
+    List<Turno> findTurnosVisiblesPorMedicoYFecha(
+            @Param("usuarioId") Long usuarioId,
+            @Param("fecha") LocalDate fecha
+    );
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\repository\UsuarioRepository.java
+==============================
+
+package com.example.backend_sis.repository;
+
+import com.example.backend_sis.model.Usuario;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
+import java.util.Optional;
+
+public interface UsuarioRepository extends JpaRepository<Usuario, Long> {
+
+    Optional<Usuario> findByCuit(String cuit);
+    Optional<Usuario> findByEmail(String email);
+    List<Usuario> findByRolNot(Usuario.Rol rol);
+
+    List<Usuario> findByRol(Usuario.Rol rol);
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\service\AdmisionService.java
+==============================
+
+package com.example.backend_sis.service;
+
+import com.example.backend_sis.dto.PacienteCreateRequest;
+import com.example.backend_sis.dto.PacienteResponse;
+import com.example.backend_sis.exception.BusinessException;
+import com.example.backend_sis.model.HistoriaClinica;
+import com.example.backend_sis.model.Paciente;
+import com.example.backend_sis.repository.HistoriaClinicaRepository;
+import com.example.backend_sis.repository.PacienteRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.util.Date;
+
+@Service
+@RequiredArgsConstructor
+public class AdmisionService {
+
+    private final PacienteRepository pacienteRepository;
+    private final HistoriaClinicaRepository historiaClinicaRepository;
+
+    @Transactional
+    public PacienteResponse registrarPaciente(PacienteCreateRequest req) {
+
+        String dni = normalizarDni(req.getDni());
+
+        if (pacienteRepository.findByDni(dni).isPresent()) {
+            throw new BusinessException("Ya existe un paciente con DNI " + dni);
+        }
+
+        // N° HC automático
+        String nroHC = generarNroHistoriaClinica(dni);
+
+        Paciente paciente = Paciente.builder()
+                .dni(dni)
+                .nombre(req.getNombre().trim())
+                .apellido(req.getApellido().trim())
+                .nroHistoriaClinica(nroHC)
+                .fechaAlta(new Date())
+                .fechaModificacion(new Date())
+                // defaults razonables (ajustables)
+                .build();
+
+        Paciente pacienteGuardado = pacienteRepository.save(paciente);
+
+        HistoriaClinica hc = HistoriaClinica.builder()
+                .paciente(pacienteGuardado)
+                .fechaCreacion(LocalDateTime.now())
+                .observaciones(null)
+                .build();
+
+        historiaClinicaRepository.save(hc);
+
+        return PacienteResponse.builder()
+                .id(pacienteGuardado.getId())
+                .dni(pacienteGuardado.getDni())
+                .nombre(pacienteGuardado.getNombre())
+                .apellido(pacienteGuardado.getApellido())
+                .nroHistoriaClinica(pacienteGuardado.getNroHistoriaClinica())
+                .build();
+    }
+
+    private String generarNroHistoriaClinica(String dni) {
+        return "HC-" + dni;
+    }
+
+    private String normalizarDni(String dni) {
+        String limpio = dni == null ? "" : dni.replaceAll("[^0-9]", "");
+        if (limpio.isBlank()) throw new BusinessException("DNI inválido");
+        return limpio;
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\service\AgendaService.java
+==============================
+
+package com.example.backend_sis.service;
+
+import com.example.backend_sis.dto.*;
+import com.example.backend_sis.model.Agenda;
+import com.example.backend_sis.model.AgendaDiaAtencion;
+import com.example.backend_sis.model.AgendaPermisoMedico;
+import com.example.backend_sis.model.Turno;
+import com.example.backend_sis.model.Usuario;
+import com.example.backend_sis.repository.AgendaRepository;
+import com.example.backend_sis.repository.TurnoRepository;
+import com.example.backend_sis.repository.UsuarioRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.util.*;
+
+@Service
+@RequiredArgsConstructor
+public class AgendaService {
+
+    private final AgendaRepository agendaRepository;
+    private final UsuarioRepository usuarioRepository;
+    private final TurnoRepository turnoRepository;
+
+    @Transactional
+    public AgendaResponse crearAgenda(AgendaCreateRequest request) {
+        validarAgenda(request);
+
+        Agenda agenda = Agenda.builder()
+                .nombre(request.getNombre().trim())
+                .especialidad(request.getEspecialidad().trim())
+                .duracionTurnoMinutos(request.getDuracionTurnoMinutos())
+                .activa(true)
+                .build();
+
+        for (AgendaDiaAtencionRequest diaRequest : request.getDiasAtencion()) {
+            AgendaDiaAtencion dia = AgendaDiaAtencion.builder()
+                    .agenda(agenda)
+                    .diaSemana(diaRequest.getDiaSemana())
+                    .horaInicio(diaRequest.getHoraInicio())
+                    .horaFin(diaRequest.getHoraFin())
+                    .build();
+            agenda.getDiasAtencion().add(dia);
+        }
+
+        if (request.getMedicoIdsConPermiso() != null) {
+            Set<Long> idsUnicos = new LinkedHashSet<>(request.getMedicoIdsConPermiso());
+            for (Long medicoId : idsUnicos) {
+                Usuario medico = usuarioRepository.findById(medicoId)
+                        .orElseThrow(() -> new RuntimeException("Médico no encontrado: " + medicoId));
+
+                if (medico.getRol() != Usuario.Rol.MEDICO) {
+                    throw new RuntimeException("El usuario " + medicoId + " no tiene rol MEDICO");
+                }
+
+                AgendaPermisoMedico permiso = AgendaPermisoMedico.builder()
+                        .agenda(agenda)
+                        .usuario(medico)
+                        .activo(true)
+                        .build();
+                agenda.getPermisosMedicos().add(permiso);
+            }
+        }
+
+        Agenda agendaGuardada = agendaRepository.save(agenda);
+        return mapToResponse(agendaGuardada);
+    }
+
+    @Transactional
+    public List<TurnoListItemResponse> generarTurnos(Long agendaId, AgendaGenerarTurnosRequest request) {
+        if (request.getFechaDesde() == null || request.getFechaHasta() == null) {
+            throw new RuntimeException("Debe informar fechaDesde y fechaHasta");
+        }
+        if (request.getFechaHasta().isBefore(request.getFechaDesde())) {
+            throw new RuntimeException("La fechaHasta no puede ser menor a la fechaDesde");
+        }
+
+        Agenda agenda = agendaRepository.findById(agendaId)
+                .orElseThrow(() -> new RuntimeException("Agenda no encontrada"));
+
+        if (Boolean.FALSE.equals(agenda.getActiva())) {
+            throw new RuntimeException("La agenda está inactiva");
+        }
+
+        List<Turno> nuevosTurnos = new ArrayList<>();
+
+        for (LocalDate fecha = request.getFechaDesde(); !fecha.isAfter(request.getFechaHasta()); fecha = fecha.plusDays(1)) {
+            for (AgendaDiaAtencion dia : agenda.getDiasAtencion()) {
+                if (dia.getDiaSemana() != fecha.getDayOfWeek()) {
+                    continue;
+                }
+
+                LocalTime horaActual = dia.getHoraInicio();
+                while (!horaActual.plusMinutes(agenda.getDuracionTurnoMinutos()).isAfter(dia.getHoraFin())) {
+                    LocalTime horaFinBloque = horaActual.plusMinutes(agenda.getDuracionTurnoMinutos());
+
+                    boolean existe = turnoRepository.existsByAgenda_IdAndFechaAndHoraDesde(
+                            agenda.getId(),
+                            fecha,
+                            horaActual
+                    );
+
+                    if (!existe) {
+                        Turno turno = Turno.builder()
+                                .agenda(agenda)
+                                .fecha(fecha)
+                                .horaDesde(horaActual)
+                                .horaHasta(horaFinBloque)
+                                .build();
+                        nuevosTurnos.add(turno);
+                    }
+
+                    horaActual = horaFinBloque;
+                }
+            }
+        }
+
+        return turnoRepository.saveAll(nuevosTurnos)
+                .stream()
+                .map(this::mapTurno)
+                .toList();
+    }
+
+    public List<AgendaResponse> listarAgendas() {
+        return agendaRepository.findAll()
+                .stream()
+                .map(this::mapToResponse)
+                .toList();
+    }
+
+    public List<AgendaResponse> listarAgendasDeMedico(Long usuarioId) {
+        Usuario usuario = usuarioRepository.findById(usuarioId)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        if (usuario.getRol() != Usuario.Rol.MEDICO) {
+            throw new RuntimeException("Solo un MEDICO puede consultar sus agendas");
+        }
+
+        return agendaRepository.findAll().stream()
+                .filter(agenda -> agenda.getPermisosMedicos().stream()
+                        .anyMatch(p -> Boolean.TRUE.equals(p.getActivo()) && p.getUsuario().getId().equals(usuarioId)))
+                .map(this::mapToResponse)
+                .toList();
+    }
+
+    private void validarAgenda(AgendaCreateRequest request) {
+        if (request.getNombre() == null || request.getNombre().isBlank()) {
+            throw new RuntimeException("El nombre de la agenda es obligatorio");
+        }
+        if (request.getEspecialidad() == null || request.getEspecialidad().isBlank()) {
+            throw new RuntimeException("La especialidad es obligatoria");
+        }
+        if (request.getDuracionTurnoMinutos() == null || request.getDuracionTurnoMinutos() <= 0) {
+            throw new RuntimeException("La duración del turno debe ser mayor a 0");
+        }
+        if (request.getDiasAtencion() == null || request.getDiasAtencion().isEmpty()) {
+            throw new RuntimeException("Debe informar al menos un día de atención");
+        }
+
+        Set<java.time.DayOfWeek> dias = new HashSet<>();
+        for (AgendaDiaAtencionRequest dia : request.getDiasAtencion()) {
+            if (dia.getDiaSemana() == null) {
+                throw new RuntimeException("Debe informar el día de semana");
+            }
+            if (dia.getHoraInicio() == null || dia.getHoraFin() == null) {
+                throw new RuntimeException("Debe informar horaInicio y horaFin");
+            }
+            if (!dia.getHoraInicio().isBefore(dia.getHoraFin())) {
+                throw new RuntimeException("La horaInicio debe ser menor a la horaFin");
+            }
+            if (!dias.add(dia.getDiaSemana())) {
+                throw new RuntimeException("No puede repetir el día " + dia.getDiaSemana());
+            }
+
+            long minutosTotales = java.time.Duration.between(dia.getHoraInicio(), dia.getHoraFin()).toMinutes();
+            if (minutosTotales < request.getDuracionTurnoMinutos()) {
+                throw new RuntimeException("La franja horaria no alcanza para un turno en el día " + dia.getDiaSemana());
+            }
+            if (minutosTotales % request.getDuracionTurnoMinutos() != 0) {
+                throw new RuntimeException("La franja horaria del día " + dia.getDiaSemana() + " debe ser múltiplo exacto de la duración del turno");
+            }
+        }
+    }
+
+    private AgendaResponse mapToResponse(Agenda agenda) {
+        return AgendaResponse.builder()
+                .id(agenda.getId())
+                .nombre(agenda.getNombre())
+                .especialidad(agenda.getEspecialidad())
+                .duracionTurnoMinutos(agenda.getDuracionTurnoMinutos())
+                .activa(agenda.getActiva())
+                .fechaCreacion(agenda.getFechaCreacion())
+                .diasAtencion(agenda.getDiasAtencion().stream()
+                        .map(d -> AgendaDiaAtencionResponse.builder()
+                                .diaSemana(d.getDiaSemana())
+                                .horaInicio(d.getHoraInicio())
+                                .horaFin(d.getHoraFin())
+                                .build())
+                        .toList())
+                .medicosConPermiso(agenda.getPermisosMedicos().stream()
+                        .filter(p -> Boolean.TRUE.equals(p.getActivo()))
+                        .map(p -> MedicoAgendaResponse.builder()
+                                .usuarioId(p.getUsuario().getId())
+                                .nombreCompleto(p.getUsuario().getNombre() + " " + p.getUsuario().getApellido())
+                                .email(p.getUsuario().getEmail())
+                                .build())
+                        .toList())
+                .build();
+    }
+
+    private TurnoListItemResponse mapTurno(Turno turno) {
+        return TurnoListItemResponse.builder()
+                .turnoId(turno.getId())
+                .agendaId(turno.getAgenda().getId())
+                .agendaNombre(turno.getAgenda().getNombre())
+                .especialidad(turno.getAgenda().getEspecialidad())
+                .fecha(turno.getFecha())
+                .horaDesde(turno.getHoraDesde())
+                .horaHasta(turno.getHoraHasta())
+                .estadoTurno(turno.getEstadoTurno())
+                .pacienteId(turno.getPaciente() != null ? turno.getPaciente().getId() : null)
+                .pacienteDni(turno.getPaciente() != null ? turno.getPaciente().getDni() : null)
+                .pacienteNombre(turno.getPaciente() != null ? turno.getPaciente().getNombre() : null)
+                .pacienteApellido(turno.getPaciente() != null ? turno.getPaciente().getApellido() : null)
+                .episodioId(turno.getEpisodio() != null ? turno.getEpisodio().getId() : null)
+                .fechaReserva(turno.getFechaReserva())
+                .fechaLlegada(turno.getFechaLlegada())
+                .observacion(turno.getObservacion())
+                .build();
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\service\AuthService.java
+==============================
+
+package com.example.backend_sis.service;
+
+import com.example.backend_sis.dto.LoginRequest;
+import com.example.backend_sis.dto.LoginResponse;
+import com.example.backend_sis.model.Usuario;
+import com.example.backend_sis.repository.UsuarioRepository;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+
+@Service
+public class AuthService {
+
+    private final UsuarioRepository usuarioRepository;
+    private final UsuarioDetailsService usuarioDetailsService;
+    private final JwtService jwtService;
+    private final PasswordEncoder passwordEncoder;
+
+    public AuthService(UsuarioRepository usuarioRepository,
+                       UsuarioDetailsService usuarioDetailsService,
+                       JwtService jwtService,
+                       PasswordEncoder passwordEncoder) {
+        this.usuarioRepository = usuarioRepository;
+        this.usuarioDetailsService = usuarioDetailsService;
+        this.jwtService = jwtService;
+        this.passwordEncoder = passwordEncoder;
+    }
+
+    public LoginResponse login(LoginRequest request) {
+
+        Usuario u = usuarioRepository.findByEmail(request.email)
+                .orElseThrow(() -> new BadCredentialsException("Credenciales inválidas"));
+
+        if (!passwordEncoder.matches(request.password, u.getPassword())) {
+            throw new BadCredentialsException("Credenciales inválidas");
+        }
+
+        UserDetails userDetails = usuarioDetailsService.loadUserByUsername(u.getEmail());
+        String token = jwtService.generateToken(userDetails);
+
+        return new LoginResponse(
+                u.getId(),
+                token,
+                u.getEmail(),
+                u.getRol().name(),
+                u.getNombre(),
+                u.getApellido(),
+                u.getDebeCambiarPassword()
+        );
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\service\CamaService.java
+==============================
+
+package com.example.backend_sis.service;
+
+import com.example.backend_sis.dto.CamaAdminRequest;
+import com.example.backend_sis.dto.CamaAdminResponse;
+import com.example.backend_sis.dto.CamaResponse;
+import com.example.backend_sis.model.Cama;
+import com.example.backend_sis.model.EstadoCama;
+import com.example.backend_sis.model.TipoServicio;
+import com.example.backend_sis.repository.CamaRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+public class CamaService {
+
+    private final CamaRepository camaRepository;
+
+    public List<CamaResponse> listarDisponiblesHospitalizacion() {
+        return camaRepository
+                .findByTipoServicioAndEstadoOrderByCodigoAsc(TipoServicio.HOSPITALIZACION, EstadoCama.DISPONIBLE)
+                .stream()
+                .map(cama -> CamaResponse.builder()
+                        .id(cama.getId())
+                        .codigo(cama.getCodigo())
+                        .descripcion(cama.getDescripcion())
+                        .estado(cama.getEstado().name())
+                        .build())
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<CamaAdminResponse> listarTodas() {
+        return camaRepository.findAllByOrderByCodigoAsc()
+                .stream()
+                .map(this::toAdminResponse)
+                .toList();
+    }
+
+    @Transactional
+    public CamaAdminResponse crear(CamaAdminRequest request) {
+        validarRequest(request);
+
+        if (camaRepository.existsByCodigoIgnoreCase(request.getCodigo().trim())) {
+            throw new RuntimeException("Ya existe una cama con ese código.");
+        }
+
+        Cama cama = Cama.builder()
+                .codigo(request.getCodigo().trim())
+                .descripcion(request.getDescripcion().trim())
+                .tipoServicio(TipoServicio.valueOf(request.getTipoServicio().toUpperCase()))
+                .estado(EstadoCama.DISPONIBLE)
+                .build();
+
+        return toAdminResponse(camaRepository.save(cama));
+    }
+
+    @Transactional
+    public CamaAdminResponse actualizar(Long camaId, CamaAdminRequest request) {
+        validarRequest(request);
+
+        Cama cama = camaRepository.findById(camaId)
+                .orElseThrow(() -> new RuntimeException("Cama no encontrada."));
+
+        if (camaRepository.existsByCodigoIgnoreCaseAndIdNot(request.getCodigo().trim(), camaId)) {
+            throw new RuntimeException("Ya existe otra cama con ese código.");
+        }
+
+        cama.setCodigo(request.getCodigo().trim());
+        cama.setDescripcion(request.getDescripcion().trim());
+        cama.setTipoServicio(TipoServicio.valueOf(request.getTipoServicio().toUpperCase()));
+
+        return toAdminResponse(camaRepository.save(cama));
+    }
+
+    private void validarRequest(CamaAdminRequest request) {
+        if (request.getCodigo() == null || request.getCodigo().isBlank()) {
+            throw new RuntimeException("El código es obligatorio.");
+        }
+        if (request.getDescripcion() == null || request.getDescripcion().isBlank()) {
+            throw new RuntimeException("La descripción es obligatoria.");
+        }
+        if (request.getTipoServicio() == null || request.getTipoServicio().isBlank()) {
+            throw new RuntimeException("El tipo de servicio es obligatorio.");
+        }
+
+        try {
+            TipoServicio.valueOf(request.getTipoServicio().toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new RuntimeException("Tipo de servicio inválido.");
+        }
+    }
+
+    private CamaAdminResponse toAdminResponse(Cama cama) {
+        return CamaAdminResponse.builder()
+                .id(cama.getId())
+                .codigo(cama.getCodigo())
+                .descripcion(cama.getDescripcion())
+                .tipoServicio(cama.getTipoServicio() != null ? cama.getTipoServicio().name() : null)
+                .estado(cama.getEstado() != null ? cama.getEstado().name() : null)
+                .build();
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\service\EpisodioDetalleService.java
+==============================
+
+package com.example.backend_sis.service;
+
+import com.example.backend_sis.dto.*;
+import com.example.backend_sis.model.*;
+import com.example.backend_sis.repository.*;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+public class EpisodioDetalleService {
+
+    private final EpisodioRepository episodioRepository;
+    private final UsuarioRepository usuarioRepository;
+    private final ObservacionEpisodioRepository observacionRepository;
+    private final EvolucionEpisodioRepository evolucionRepository;
+    private final HistoriaClinicaRepository historiaClinicaRepository;
+    private final ObservacionHistoriaClinicaRepository observacionHistoriaClinicaRepository;
+
+    public EpisodioDetalleResponse obtenerDetalle(Long episodioId) {
+        Episodio episodio = episodioRepository.findById(episodioId)
+                .orElseThrow(() -> new RuntimeException("Episodio no encontrado"));
+
+        List<ObservacionEpisodioResponse> observaciones = observacionRepository
+                .findByEpisodioIdOrderByFechaRegistroDesc(episodioId)
+                .stream()
+                .map(o -> ObservacionEpisodioResponse.builder()
+                        .id(o.getId())
+                        .observacion(o.getObservacion())
+                        .fechaRegistro(o.getFechaRegistro())
+                        .usuarioId(o.getUsuario().getId())
+                        .nombreUsuario(o.getUsuario().getNombre() + " " + o.getUsuario().getApellido())
+                        .build())
+                .toList();
+
+        List<EvolucionEpisodioResponse> evoluciones = evolucionRepository
+                .findByEpisodioIdOrderByFechaRegistroDesc(episodioId)
+                .stream()
+                .map(e -> EvolucionEpisodioResponse.builder()
+                        .id(e.getId())
+                        .diagnosticos(e.getDiagnosticos())
+                        .evolucion(e.getEvolucion())
+                        .medicacionIndicaciones(e.getMedicacionIndicaciones())
+                        .estudiosSolicitados(e.getEstudiosSolicitados())
+                        .fechaRegistro(e.getFechaRegistro())
+                        .usuarioId(e.getUsuario().getId())
+                        .nombreUsuario(e.getUsuario().getNombre() + " " + e.getUsuario().getApellido())
+                        .build())
+                .toList();
+
+        String observacionesHC = null;
+        if (episodio.getPaciente().getHistoriaClinica() != null) {
+            observacionesHC = episodio.getPaciente().getHistoriaClinica().getObservaciones();
+        }
+
+        List<ObservacionHistoriaClinicaResponse> historialObservacionesHC = List.of();
+
+        if (episodio.getPaciente().getHistoriaClinica() != null) {
+            Long historiaClinicaId = episodio.getPaciente().getHistoriaClinica().getId();
+
+            historialObservacionesHC = observacionHistoriaClinicaRepository
+                    .findByHistoriaClinicaIdOrderByFechaRegistroDesc(historiaClinicaId)
+                    .stream()
+                    .map(o -> ObservacionHistoriaClinicaResponse.builder()
+                            .id(o.getId())
+                            .observacion(o.getObservacion())
+                            .fechaRegistro(o.getFechaRegistro())
+                            .usuarioId(o.getUsuario().getId())
+                            .nombreUsuario(o.getUsuario().getNombre() + " " + o.getUsuario().getApellido())
+                            .build())
+                    .toList();
+        }
+
+        return EpisodioDetalleResponse.builder()
+                .episodioId(episodio.getId())
+                .tipoServicio(episodio.getTipoServicio())
+                .estadoAtencion(episodio.getEstadoAtencion())
+                .fechaIngreso(episodio.getFechaIngreso())
+                .fechaEgreso(episodio.getFechaEgreso())
+                .pacienteId(episodio.getPaciente().getId())
+                .dni(episodio.getPaciente().getDni())
+                .nombre(episodio.getPaciente().getNombre())
+                .apellido(episodio.getPaciente().getApellido())
+                .nroHistoriaClinica(episodio.getPaciente().getNroHistoriaClinica())
+                .camaId(episodio.getCama() != null ? episodio.getCama().getId() : null)
+                .camaCodigo(episodio.getCama() != null ? episodio.getCama().getCodigo() : null)
+                .observacionesHistoriaClinica(observacionesHC)
+                .observaciones(observaciones)
+                .evoluciones(evoluciones)
+                .historialObservacionesHistoriaClinica(historialObservacionesHC)
+                .build();
+    }
+
+    public ObservacionEpisodioResponse agregarObservacion(Long episodioId, ObservacionEpisodioCreateRequest request) {
+        Episodio episodio = episodioRepository.findById(episodioId)
+                .orElseThrow(() -> new RuntimeException("Episodio no encontrado"));
+
+        Usuario usuario = usuarioRepository.findById(request.getUsuarioId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        ObservacionEpisodio observacion = ObservacionEpisodio.builder()
+                .episodio(episodio)
+                .usuario(usuario)
+                .observacion(request.getObservacion())
+                .build();
+
+        ObservacionEpisodio guardada = observacionRepository.save(observacion);
+
+        return ObservacionEpisodioResponse.builder()
+                .id(guardada.getId())
+                .observacion(guardada.getObservacion())
+                .fechaRegistro(guardada.getFechaRegistro())
+                .usuarioId(usuario.getId())
+                .nombreUsuario(usuario.getNombre() + " " + usuario.getApellido())
+                .build();
+    }
+
+    public EvolucionEpisodioResponse agregarEvolucion(Long episodioId, EvolucionEpisodioCreateRequest request) {
+        Episodio episodio = episodioRepository.findById(episodioId)
+                .orElseThrow(() -> new RuntimeException("Episodio no encontrado"));
+
+        Usuario usuario = usuarioRepository.findById(request.getUsuarioId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        EvolucionEpisodio evolucion = EvolucionEpisodio.builder()
+                .episodio(episodio)
+                .usuario(usuario)
+                .diagnosticos(request.getDiagnosticos())
+                .evolucion(request.getEvolucion())
+                .medicacionIndicaciones(request.getMedicacionIndicaciones())
+                .estudiosSolicitados(request.getEstudiosSolicitados())
+                .build();
+
+        EvolucionEpisodio guardada = evolucionRepository.save(evolucion);
+
+        return EvolucionEpisodioResponse.builder()
+                .id(guardada.getId())
+                .diagnosticos(guardada.getDiagnosticos())
+                .evolucion(guardada.getEvolucion())
+                .medicacionIndicaciones(guardada.getMedicacionIndicaciones())
+                .estudiosSolicitados(guardada.getEstudiosSolicitados())
+                .fechaRegistro(guardada.getFechaRegistro())
+                .usuarioId(usuario.getId())
+                .nombreUsuario(usuario.getNombre() + " " + usuario.getApellido())
+                .build();
+    }
+
+    public HistoriaClinicaResponse actualizarObservacionesHC(Long episodioId, HistoriaClinicaUpdateObservacionesRequest request) {
+
+        Episodio episodio = episodioRepository.findById(episodioId)
+                .orElseThrow(() -> new RuntimeException("Episodio no encontrado"));
+
+        HistoriaClinica hc = episodio.getPaciente().getHistoriaClinica();
+
+        if (hc == null) {
+            throw new RuntimeException("El paciente no tiene historia clínica");
+        }
+
+        hc.setObservaciones(request.getObservaciones());
+        HistoriaClinica guardada = historiaClinicaRepository.save(hc);
+
+        // No hace falta save explícito si estás en contexto JPA,
+        // pero por claridad:
+        // historiaClinicaRepository.save(hc);
+
+        return HistoriaClinicaResponse.builder()
+                .id(hc.getId())
+                .fechaCreacion(hc.getFechaCreacion())
+                .observaciones(hc.getObservaciones())
+                .paciente(HistoriaClinicaResponse.PacienteResumen.builder()
+                        .id(episodio.getPaciente().getId())
+                        .dni(episodio.getPaciente().getDni())
+                        .nombre(episodio.getPaciente().getNombre())
+                        .apellido(episodio.getPaciente().getApellido())
+                        .nroHistoriaClinica(episodio.getPaciente().getNroHistoriaClinica())
+                        .build())
+                .build();
+    }
+
+    public ObservacionHistoriaClinicaResponse agregarObservacionHistoriaClinica(
+            Long episodioId,
+            ObservacionHistoriaClinicaCreateRequest request
+    ) {
+        Episodio episodio = episodioRepository.findById(episodioId)
+                .orElseThrow(() -> new RuntimeException("Episodio no encontrado"));
+
+        Usuario usuario = usuarioRepository.findById(request.getUsuarioId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        HistoriaClinica historiaClinica = episodio.getPaciente().getHistoriaClinica();
+
+        if (historiaClinica == null) {
+            throw new RuntimeException("El paciente no tiene historia clínica asociada");
+        }
+
+        String observacion = request.getObservacion();
+        if (observacion == null || observacion.trim().isBlank()) {
+            throw new RuntimeException("La observación de historia clínica es obligatoria");
+        }
+
+        ObservacionHistoriaClinica nueva = ObservacionHistoriaClinica.builder()
+                .historiaClinica(historiaClinica)
+                .usuario(usuario)
+                .observacion(observacion.trim())
+                .build();
+
+        ObservacionHistoriaClinica guardada = observacionHistoriaClinicaRepository.save(nueva);
+
+        return ObservacionHistoriaClinicaResponse.builder()
+                .id(guardada.getId())
+                .observacion(guardada.getObservacion())
+                .fechaRegistro(guardada.getFechaRegistro())
+                .usuarioId(usuario.getId())
+                .nombreUsuario(usuario.getNombre() + " " + usuario.getApellido())
+                .build();
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\service\EpisodioService.java
+==============================
+
+package com.example.backend_sis.service;
+
+import com.example.backend_sis.dto.EpisodioCambioCamaRequest;
+import com.example.backend_sis.dto.EpisodioCreateRequest;
+import com.example.backend_sis.dto.EpisodioListItemResponse;
+import com.example.backend_sis.model.*;
+import com.example.backend_sis.repository.CamaRepository;
+import com.example.backend_sis.repository.EpisodioRepository;
+import com.example.backend_sis.repository.MovimientoCamaRepository;
+import com.example.backend_sis.repository.PacienteRepository;
+import com.example.backend_sis.repository.UsuarioRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+public class EpisodioService {
+
+    private final EpisodioRepository episodioRepository;
+    private final PacienteRepository pacienteRepository;
+    private final UsuarioRepository usuarioRepository;
+    private final CamaRepository camaRepository;
+    private final MovimientoCamaRepository movimientoCamaRepository;
+
+    private static final List<EstadoAtencion> ESTADOS_ACTIVOS = List.of(
+            EstadoAtencion.EN_ESPERA,
+            EstadoAtencion.EN_ATENCION,
+            EstadoAtencion.FINALIZADO
+    );
+
+    @Transactional
+    public Episodio crearEpisodio(EpisodioCreateRequest request) {
+        Paciente paciente = pacienteRepository.findById(request.getPacienteId())
+                .orElseThrow(() -> new RuntimeException("Paciente no encontrado"));
+
+        Usuario usuario = usuarioRepository.findById(request.getUsuarioId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        boolean yaTieneActivo = episodioRepository.existsByPaciente_IdAndEstadoAtencionIn(
+                paciente.getId(),
+                ESTADOS_ACTIVOS
+        );
+
+        if (yaTieneActivo) {
+            throw new RuntimeException("El paciente ya tiene un episodio activo");
+        }
+
+        Cama cama = null;
+        if (request.getTipoServicio() == TipoServicio.HOSPITALIZACION) {
+            if (request.getCamaId() == null) {
+                throw new RuntimeException("Debe seleccionar una cama para hospitalización");
+            }
+
+            cama = camaRepository.findById(request.getCamaId())
+                    .orElseThrow(() -> new RuntimeException("Cama no encontrada"));
+
+            if (cama.getTipoServicio() != TipoServicio.HOSPITALIZACION) {
+                throw new RuntimeException("La cama seleccionada no pertenece a hospitalización");
+            }
+
+            if (cama.getEstado() != EstadoCama.DISPONIBLE) {
+                throw new RuntimeException("La cama seleccionada no está disponible");
+            }
+
+            cama.setEstado(EstadoCama.OCUPADA);
+            camaRepository.save(cama);
+        }
+
+        Episodio episodio = Episodio.builder()
+                .paciente(paciente)
+                .usuario(usuario)
+                .tipoServicio(request.getTipoServicio())
+                .estadoAtencion(EstadoAtencion.EN_ESPERA)
+                .fechaIngreso(LocalDateTime.now())
+                .fechaEgreso(null)
+                .cama(cama)
+                .build();
+
+        Episodio episodioGuardado = episodioRepository.save(episodio);
+
+        if (episodioGuardado.getTipoServicio() == TipoServicio.HOSPITALIZACION && episodioGuardado.getCama() != null) {
+            registrarMovimiento(
+                    episodioGuardado,
+                    null,
+                    episodioGuardado.getCama(),
+                    usuario,
+                    TipoMovimientoCama.INGRESO
+            );
+        }
+
+        return episodioGuardado;
+    }
+
+    @Transactional
+    public Episodio crearEpisodioConsultoriosDesdeTurno(Long pacienteId, Long usuarioId) {
+        Paciente paciente = pacienteRepository.findById(pacienteId)
+                .orElseThrow(() -> new RuntimeException("Paciente no encontrado"));
+
+        Usuario usuario = usuarioRepository.findById(usuarioId)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        if (usuario.getRol() != Usuario.Rol.ADMINISTRATIVO) {
+            throw new RuntimeException("Solo un ADMINISTRATIVO puede registrar la llegada del paciente");
+        }
+
+        boolean yaTieneActivo = episodioRepository.existsByPaciente_IdAndEstadoAtencionIn(
+                paciente.getId(),
+                ESTADOS_ACTIVOS
+        );
+
+        if (yaTieneActivo) {
+            throw new RuntimeException("El paciente ya tiene un episodio activo");
+        }
+
+        Episodio episodio = Episodio.builder()
+                .paciente(paciente)
+                .usuario(usuario)
+                .tipoServicio(TipoServicio.CONSULTORIOS)
+                .estadoAtencion(EstadoAtencion.EN_ESPERA)
+                .fechaIngreso(LocalDateTime.now())
+                .fechaEgreso(null)
+                .cama(null)
+                .build();
+
+        return episodioRepository.save(episodio);
+    }
+
+    public List<EpisodioListItemResponse> listarActivosPorServicio(TipoServicio tipoServicio) {
+        return episodioRepository
+                .findByTipoServicioAndEstadoAtencionInOrderByFechaIngresoDesc(tipoServicio, ESTADOS_ACTIVOS)
+                .stream()
+                .map(episodio -> EpisodioListItemResponse.builder()
+                        .episodioId(episodio.getId())
+                        .pacienteId(episodio.getPaciente().getId())
+                        .dni(episodio.getPaciente().getDni())
+                        .nombre(episodio.getPaciente().getNombre())
+                        .apellido(episodio.getPaciente().getApellido())
+                        .tipoServicio(episodio.getTipoServicio())
+                        .estadoAtencion(episodio.getEstadoAtencion())
+                        .fechaIngreso(episodio.getFechaIngreso())
+                        .camaId(episodio.getCama() != null ? episodio.getCama().getId() : null)
+                        .camaCodigo(episodio.getCama() != null ? episodio.getCama().getCodigo() : null)
+                        .build())
+                .toList();
+    }
+
+    @Transactional
+    public Episodio cambiarEstado(Long episodioId, EstadoAtencion nuevoEstado, Long usuarioId) {
+        Episodio episodio = episodioRepository.findById(episodioId)
+                .orElseThrow(() -> new RuntimeException("Episodio no encontrado"));
+
+        Usuario usuario = usuarioRepository.findById(usuarioId)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        EstadoAtencion estadoActual = episodio.getEstadoAtencion();
+
+        if (estadoActual == EstadoAtencion.ALTA) {
+            throw new RuntimeException("No se puede modificar un episodio que ya está en ALTA");
+        }
+
+        validarCambioEstado(estadoActual, nuevoEstado, usuario);
+
+        episodio.setEstadoAtencion(nuevoEstado);
+
+        if (nuevoEstado == EstadoAtencion.ALTA) {
+            episodio.setFechaEgreso(LocalDateTime.now());
+
+            if (episodio.getTipoServicio() == TipoServicio.HOSPITALIZACION && episodio.getCama() != null) {
+                Cama camaActual = episodio.getCama();
+
+                registrarMovimiento(
+                        episodio,
+                        camaActual,
+                        null,
+                        usuario,
+                        TipoMovimientoCama.ALTA
+                );
+
+                camaActual.setEstado(EstadoCama.DISPONIBLE);
+                camaRepository.save(camaActual);
+                episodio.setCama(null);
+            }
+        } else {
+            episodio.setFechaEgreso(null);
+        }
+
+        return episodioRepository.save(episodio);
+    }
+
+    @Transactional
+    public Episodio cambiarCama(Long episodioId, EpisodioCambioCamaRequest request) {
+        if (request.getNuevaCamaId() == null) {
+            throw new RuntimeException("Debe seleccionar una nueva cama");
+        }
+
+        Episodio episodio = episodioRepository.findById(episodioId)
+                .orElseThrow(() -> new RuntimeException("Episodio no encontrado"));
+
+        if (episodio.getTipoServicio() != TipoServicio.HOSPITALIZACION) {
+            throw new RuntimeException("Solo se puede cambiar cama en episodios de hospitalización");
+        }
+
+        if (!ESTADOS_ACTIVOS.contains(episodio.getEstadoAtencion())) {
+            throw new RuntimeException("Solo se puede cambiar cama en episodios activos");
+        }
+
+        Usuario usuario = usuarioRepository.findById(request.getUsuarioId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        if (usuario.getRol() != Usuario.Rol.ADMINISTRATIVO && usuario.getRol() != Usuario.Rol.MEDICO) {
+            throw new RuntimeException("El usuario no tiene permisos para cambiar la cama");
+        }
+
+        Cama nuevaCama = camaRepository.findById(request.getNuevaCamaId())
+                .orElseThrow(() -> new RuntimeException("La nueva cama no existe"));
+
+        if (nuevaCama.getTipoServicio() != TipoServicio.HOSPITALIZACION) {
+            throw new RuntimeException("La cama seleccionada no pertenece a hospitalización");
+        }
+
+        if (nuevaCama.getEstado() != EstadoCama.DISPONIBLE) {
+            throw new RuntimeException("La cama seleccionada no está disponible");
+        }
+
+        Cama camaAnterior = episodio.getCama();
+
+        if (camaAnterior != null && camaAnterior.getId().equals(nuevaCama.getId())) {
+            throw new RuntimeException("El paciente ya se encuentra en esa cama");
+        }
+
+        nuevaCama.setEstado(EstadoCama.OCUPADA);
+        camaRepository.save(nuevaCama);
+
+        if (camaAnterior != null) {
+            camaAnterior.setEstado(EstadoCama.DISPONIBLE);
+            camaRepository.save(camaAnterior);
+        }
+
+        episodio.setCama(nuevaCama);
+        Episodio episodioActualizado = episodioRepository.save(episodio);
+
+        registrarMovimiento(
+                episodioActualizado,
+                camaAnterior,
+                nuevaCama,
+                usuario,
+                TipoMovimientoCama.TRASLADO
+        );
+
+        return episodioActualizado;
+    }
+
+    private void validarCambioEstado(EstadoAtencion estadoActual, EstadoAtencion nuevoEstado, Usuario usuario) {
+        Usuario.Rol rol = usuario.getRol();
+
+        if (nuevoEstado == EstadoAtencion.ALTA) {
+            if (rol != Usuario.Rol.ADMINISTRATIVO) {
+                throw new RuntimeException("Solo un ADMINISTRATIVO puede dar el alta");
+            }
+
+            if (estadoActual != EstadoAtencion.FINALIZADO) {
+                throw new RuntimeException("El alta solo se puede realizar desde FINALIZADO");
+            }
+
+            return;
+        }
+
+        if (rol != Usuario.Rol.MEDICO) {
+            throw new RuntimeException("Solo un MEDICO puede cambiar a este estado");
+        }
+
+        boolean transicionValida =
+                (estadoActual == EstadoAtencion.EN_ESPERA && nuevoEstado == EstadoAtencion.EN_ATENCION)
+                        || (estadoActual == EstadoAtencion.EN_ATENCION && nuevoEstado == EstadoAtencion.FINALIZADO)
+                        || (estadoActual == EstadoAtencion.FINALIZADO && nuevoEstado == EstadoAtencion.EN_ATENCION);
+
+        if (!transicionValida) {
+            throw new RuntimeException("Cambio de estado no permitido");
+        }
+    }
+
+    private void registrarMovimiento(Episodio episodio,
+                                     Cama camaOrigen,
+                                     Cama camaDestino,
+                                     Usuario usuario,
+                                     TipoMovimientoCama tipoMovimiento) {
+        MovimientoCama movimiento = new MovimientoCama();
+        movimiento.setEpisodio(episodio);
+        movimiento.setCamaOrigen(camaOrigen);
+        movimiento.setCamaDestino(camaDestino);
+        movimiento.setUsuario(usuario);
+        movimiento.setTipoMovimiento(tipoMovimiento);
+        movimiento.setFechaMovimiento(LocalDateTime.now());
+        movimientoCamaRepository.save(movimiento);
+    }
+
+    public List<EpisodioListItemResponse> listarPorPacienteDni(String dni) {
+        String limpio = (dni == null) ? "" : dni.replaceAll("[^0-9]", "");
+
+        if (limpio.isBlank()) {
+            throw new RuntimeException("DNI inválido");
+        }
+
+        return episodioRepository.findByPaciente_DniOrderByFechaIngresoDesc(limpio)
+                .stream()
+                .map(episodio -> EpisodioListItemResponse.builder()
+                        .episodioId(episodio.getId())
+                        .pacienteId(episodio.getPaciente().getId())
+                        .dni(episodio.getPaciente().getDni())
+                        .nombre(episodio.getPaciente().getNombre())
+                        .apellido(episodio.getPaciente().getApellido())
+                        .tipoServicio(episodio.getTipoServicio())
+                        .estadoAtencion(episodio.getEstadoAtencion())
+                        .fechaIngreso(episodio.getFechaIngreso())
+                        .camaId(episodio.getCama() != null ? episodio.getCama().getId() : null)
+                        .camaCodigo(episodio.getCama() != null ? episodio.getCama().getCodigo() : null)
+                        .build())
+                .toList();
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\service\JwtService.java
+==============================
+
+package com.example.backend_sis.service;
+
+import io.jsonwebtoken.*;
+import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.stereotype.Service;
+
+import java.nio.charset.StandardCharsets;
+import java.security.Key;
+import java.util.Date;
+
+@Service
+public class JwtService {
+
+    @Value("${jwt.secret}")
+    private String secret;
+
+    @Value("${jwt.expirationMillis}")
+    private long expirationMillis;
+
+    private Key getSigningKey() {
+        return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+    }
+
+    public String generateToken(UserDetails userDetails) {
+        Date now = new Date();
+        Date exp = new Date(now.getTime() + expirationMillis);
+
+        return Jwts.builder()
+                .setSubject(userDetails.getUsername()) // email
+                .setIssuedAt(now)
+                .setExpiration(exp)
+                .signWith(getSigningKey(), SignatureAlgorithm.HS256)
+                .compact();
+    }
+
+    public String extractUsername(String token) {
+        return parseClaims(token).getBody().getSubject();
+    }
+
+    public boolean isTokenValid(String token, UserDetails userDetails) {
+        String username = extractUsername(token);
+        return username.equals(userDetails.getUsername()) && !isTokenExpired(token);
+    }
+
+    private boolean isTokenExpired(String token) {
+        Date exp = parseClaims(token).getBody().getExpiration();
+        return exp.before(new Date());
+    }
+
+    private Jws<Claims> parseClaims(String token) {
+        return Jwts.parserBuilder()
+                .setSigningKey(getSigningKey())
+                .build()
+                .parseClaimsJws(token);
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\service\MovimientoCamaService.java
+==============================
+
+package com.example.backend_sis.service;
+
+import com.example.backend_sis.dto.MovimientoCamaResponse;
+import com.example.backend_sis.model.MovimientoCama;
+import com.example.backend_sis.repository.MovimientoCamaRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+public class MovimientoCamaService {
+
+    private final MovimientoCamaRepository movimientoCamaRepository;
+
+    @Transactional(readOnly = true)
+    public List<MovimientoCamaResponse> obtenerPorEpisodio(Long episodioId) {
+        return movimientoCamaRepository.findByEpisodioIdOrderByFechaMovimientoAsc(episodioId)
+                .stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
+    private MovimientoCamaResponse toResponse(MovimientoCama mov) {
+        String nombreCompleto = "-";
+        Long usuarioId = null;
+
+        if (mov.getUsuario() != null) {
+            usuarioId = mov.getUsuario().getId();
+            nombreCompleto = (mov.getUsuario().getNombre() + " " + mov.getUsuario().getApellido()).trim();
+        }
+
+        return new MovimientoCamaResponse(
+                mov.getId(),
+                mov.getEpisodio().getId(),
+                mov.getCamaOrigen() != null ? mov.getCamaOrigen().getId() : null,
+                mov.getCamaOrigen() != null ? mov.getCamaOrigen().getCodigo() : null,
+                mov.getCamaDestino() != null ? mov.getCamaDestino().getId() : null,
+                mov.getCamaDestino() != null ? mov.getCamaDestino().getCodigo() : null,
+                usuarioId,
+                nombreCompleto,
+                mov.getTipoMovimiento(),
+                mov.getFechaMovimiento()
+        );
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\service\ReconocimientoService.java
+==============================
+
+package com.example.backend_sis.service;
+
+import com.example.backend_sis.dto.PacienteRostroMatchResponse;
+import com.example.backend_sis.dto.ReconocimientoAdminItemResponse;
+import com.example.backend_sis.dto.ReconocimientoRostroResponse;
+import com.example.backend_sis.exception.BusinessException;
+import com.example.backend_sis.model.Paciente;
+import com.example.backend_sis.model.Reconocimiento;
+import com.example.backend_sis.repository.PacienteRepository;
+import com.example.backend_sis.repository.ReconocimientoRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.Date;
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+public class ReconocimientoService {
+
+    private static final String PROVEEDOR_AWS_REKOGNITION = "AWS_REKOGNITION";
+
+    private final PacienteRepository pacienteRepository;
+    private final ReconocimientoRepository reconocimientoRepository;
+    private final S3Service s3Service;
+    private final RekognitionService rekognitionService;
+
+    @Transactional
+    public ReconocimientoRostroResponse registrarRostro(Long pacienteId, MultipartFile archivo) {
+        Paciente paciente = pacienteRepository.findById(pacienteId)
+                .orElseThrow(() -> new BusinessException("No existe paciente con id " + pacienteId));
+
+        boolean yaTieneRostro = reconocimientoRepository.existsByPacienteIdAndTipoBiometria(
+                pacienteId,
+                Reconocimiento.TipoBiometria.ROSTRO
+        );
+
+        if (yaTieneRostro) {
+            throw new BusinessException("El paciente ya tiene un rostro registrado.");
+        }
+
+        S3Service.UploadResult uploadResult = s3Service.subirRostro(archivo, pacienteId);
+        String externalImageId = "paciente-" + paciente.getId() + "-" + paciente.getDni();
+
+        RekognitionService.IndexFaceResult indexFaceResult = rekognitionService.indexarRostro(
+                uploadResult.getBucket(),
+                uploadResult.getKey(),
+                externalImageId
+        );
+
+        Date ahora = new Date();
+
+        Reconocimiento reconocimiento = new Reconocimiento();
+        reconocimiento.setReferenciaBiometrica(indexFaceResult.getFaceId());
+        reconocimiento.setTipoBiometria(Reconocimiento.TipoBiometria.ROSTRO);
+        reconocimiento.setProveedor(PROVEEDOR_AWS_REKOGNITION);
+        reconocimiento.setCollectionId(indexFaceResult.getCollectionId());
+        reconocimiento.setExternalImageId(indexFaceResult.getExternalImageId());
+        reconocimiento.setS3Bucket(uploadResult.getBucket());
+        reconocimiento.setS3Key(uploadResult.getKey());
+        reconocimiento.setFechaCaptura(ahora);
+        reconocimiento.setFechaVinculoPaciente(ahora);
+        reconocimiento.setPaciente(paciente);
+
+        Reconocimiento guardado = reconocimientoRepository.save(reconocimiento);
+        return toResponse(guardado);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ReconocimientoAdminItemResponse> listarRostrosAdmin() {
+        return reconocimientoRepository.findAll()
+                .stream()
+                .filter(r -> r.getTipoBiometria() == Reconocimiento.TipoBiometria.ROSTRO)
+                .map(this::toAdminItemResponse)
+                .toList();
+    }
+
+    @Transactional
+    public void eliminarRostroAdmin(Long reconocimientoId) {
+        Reconocimiento reconocimiento = reconocimientoRepository.findById(reconocimientoId)
+                .orElseThrow(() -> new BusinessException("No existe el registro biométrico con id " + reconocimientoId));
+
+        if (reconocimiento.getTipoBiometria() != Reconocimiento.TipoBiometria.ROSTRO) {
+            throw new BusinessException("El registro indicado no corresponde a un rostro.");
+        }
+
+        if (reconocimiento.getReferenciaBiometrica() != null && !reconocimiento.getReferenciaBiometrica().isBlank()) {
+            rekognitionService.eliminarRostro(reconocimiento.getReferenciaBiometrica());
+        }
+
+        if (reconocimiento.getS3Bucket() != null && !reconocimiento.getS3Bucket().isBlank()
+                && reconocimiento.getS3Key() != null && !reconocimiento.getS3Key().isBlank()) {
+            s3Service.eliminarObjeto(reconocimiento.getS3Bucket(), reconocimiento.getS3Key());
+        }
+
+        reconocimientoRepository.delete(reconocimiento);
+    }
+
+    @Transactional(readOnly = true)
+    public PacienteRostroMatchResponse buscarPacientePorRostro(MultipartFile archivo) {
+        RekognitionService.SearchFaceResult searchResult = rekognitionService.buscarRostro(archivo);
+
+        Reconocimiento reconocimiento = reconocimientoRepository
+                .findByReferenciaBiometricaAndTipoBiometria(
+                        searchResult.getFaceId(),
+                        Reconocimiento.TipoBiometria.ROSTRO
+                )
+                .orElseThrow(() -> new BusinessException("Se encontró una coincidencia en Rekognition, pero no está vinculada a un paciente del sistema."));
+
+        Paciente paciente = reconocimiento.getPaciente();
+
+        if (paciente == null) {
+            throw new BusinessException("La coincidencia encontrada no tiene un paciente asociado.");
+        }
+
+        return PacienteRostroMatchResponse.builder()
+                .id(paciente.getId())
+                .dni(paciente.getDni())
+                .nombre(paciente.getNombre())
+                .apellido(paciente.getApellido())
+                .nroHistoriaClinica(paciente.getNroHistoriaClinica())
+                .fechaNacimiento(paciente.getFechaNacimiento())
+                .edad(paciente.getEdad())
+                .sexo(paciente.getSexo())
+                .estadoPersona(paciente.getEstadoPersona())
+                .fechaAlta(paciente.getFechaAlta())
+                .fechaModificacion(paciente.getFechaModificacion())
+                .referenciaBiometrica(reconocimiento.getReferenciaBiometrica())
+                .similitud(searchResult.getSimilarity())
+                .build();
+    }
+
+    private ReconocimientoAdminItemResponse toAdminItemResponse(Reconocimiento r) {
+        Paciente p = r.getPaciente();
+
+        String previewUrl = s3Service.generarUrlPreviewTemporal(
+                r.getS3Bucket(),
+                r.getS3Key()
+        );
+
+        return ReconocimientoAdminItemResponse.builder()
+                .id(r.getId())
+                .pacienteId(p != null ? p.getId() : null)
+                .pacienteDni(p != null ? p.getDni() : null)
+                .pacienteNombreCompleto(p != null
+                        ? ((p.getApellido() == null ? "" : p.getApellido()) + ", " + (p.getNombre() == null ? "" : p.getNombre()))
+                        : null)
+                .faceId(r.getReferenciaBiometrica())
+                .externalImageId(r.getExternalImageId())
+                .s3Bucket(r.getS3Bucket())
+                .s3Key(r.getS3Key())
+                .collectionId(r.getCollectionId())
+                .previewUrl(previewUrl)
+                .build();
+    }
+
+    private ReconocimientoRostroResponse toResponse(Reconocimiento r) {
+        Paciente p = r.getPaciente();
+
+        return ReconocimientoRostroResponse.builder()
+                .id(r.getId())
+                .pacienteId(p.getId())
+                .pacienteDni(p.getDni())
+                .pacienteNombreCompleto((p.getApellido() == null ? "" : p.getApellido()) + ", " + (p.getNombre() == null ? "" : p.getNombre()))
+                .tipoBiometria(r.getTipoBiometria())
+                .proveedor(r.getProveedor())
+                .referenciaBiometrica(r.getReferenciaBiometrica())
+                .collectionId(r.getCollectionId())
+                .externalImageId(r.getExternalImageId())
+                .s3Bucket(r.getS3Bucket())
+                .s3Key(r.getS3Key())
+                .fechaCaptura(r.getFechaCaptura())
+                .fechaVinculoPaciente(r.getFechaVinculoPaciente())
+                .build();
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\service\RekognitionService.java
+==============================
+
+package com.example.backend_sis.service;
+
+import com.example.backend_sis.exception.BusinessException;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+import software.amazon.awssdk.core.SdkBytes;
+import software.amazon.awssdk.services.rekognition.RekognitionClient;
+import software.amazon.awssdk.services.rekognition.model.*;
+
+import java.io.IOException;
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+public class RekognitionService {
+
+    private final RekognitionClient rekognitionClient;
+
+    @Value("${aws.rekognition.collection-id}")
+    private String collectionId;
+
+    public IndexFaceResult indexarRostro(String bucket, String key, String externalImageId) {
+        asegurarColeccion();
+
+        try {
+            Image image = Image.builder()
+                    .s3Object(S3Object.builder()
+                            .bucket(bucket)
+                            .name(key)
+                            .build())
+                    .build();
+
+            IndexFacesRequest request = IndexFacesRequest.builder()
+                    .collectionId(collectionId)
+                    .image(image)
+                    .externalImageId(externalImageId)
+                    .maxFaces(1)
+                    .qualityFilter(QualityFilter.AUTO)
+                    .build();
+
+            IndexFacesResponse response = rekognitionClient.indexFaces(request);
+            List<FaceRecord> faceRecords = response.faceRecords();
+
+            if (faceRecords == null || faceRecords.isEmpty()) {
+                throw new BusinessException("No se detectó un rostro válido en la imagen enviada.");
+            }
+
+            String faceId = faceRecords.get(0).face().faceId();
+
+            return new IndexFaceResult(faceId, collectionId, externalImageId);
+        } catch (RekognitionException e) {
+            throw new BusinessException("Error al indexar el rostro en AWS Rekognition: " + e.awsErrorDetails().errorMessage());
+        } catch (Exception e) {
+            throw new BusinessException("Error inesperado al indexar el rostro: " + e.getMessage());
+        }
+    }
+
+    public SearchFaceResult buscarRostro(MultipartFile archivo) {
+        validarArchivoImagen(archivo);
+
+        try {
+            Image image = Image.builder()
+                    .bytes(SdkBytes.fromByteArray(archivo.getBytes()))
+                    .build();
+
+            SearchFacesByImageRequest request = SearchFacesByImageRequest.builder()
+                    .collectionId(collectionId)
+                    .image(image)
+                    .faceMatchThreshold(90F)
+                    .maxFaces(1)
+                    .build();
+
+            SearchFacesByImageResponse response = rekognitionClient.searchFacesByImage(request);
+            List<FaceMatch> matches = response.faceMatches();
+
+            if (matches == null || matches.isEmpty()) {
+                throw new BusinessException("No se encontró un paciente registrado con ese rostro.");
+            }
+
+            FaceMatch match = matches.get(0);
+
+            if (match.face() == null || match.face().faceId() == null || match.face().faceId().isBlank()) {
+                throw new BusinessException("No se encontró una coincidencia válida para el rostro enviado.");
+            }
+
+            return new SearchFaceResult(match.face().faceId(), match.similarity());
+        } catch (IOException e) {
+            throw new BusinessException("No se pudo leer la imagen enviada para buscar por rostro.");
+        } catch (RekognitionException e) {
+            throw new BusinessException("Error al buscar coincidencias en AWS Rekognition: " + e.awsErrorDetails().errorMessage());
+        } catch (Exception e) {
+            throw new BusinessException("Error inesperado al buscar por rostro: " + e.getMessage());
+        }
+    }
+
+    public void eliminarRostro(String faceId) {
+        if (faceId == null || faceId.isBlank()) {
+            return;
+        }
+
+        asegurarColeccion();
+
+        try {
+            DeleteFacesRequest request = DeleteFacesRequest.builder()
+                    .collectionId(collectionId)
+                    .faceIds(faceId)
+                    .build();
+
+            rekognitionClient.deleteFaces(request);
+        } catch (RekognitionException e) {
+            throw new BusinessException("Error al eliminar el rostro en AWS Rekognition: " + e.awsErrorDetails().errorMessage());
+        } catch (Exception e) {
+            throw new BusinessException("Error inesperado al eliminar el rostro en AWS Rekognition: " + e.getMessage());
+        }
+    }
+
+    private void asegurarColeccion() {
+        try {
+            rekognitionClient.describeCollection(
+                    DescribeCollectionRequest.builder()
+                            .collectionId(collectionId)
+                            .build()
+            );
+        } catch (ResourceNotFoundException e) {
+            try {
+                rekognitionClient.createCollection(
+                        CreateCollectionRequest.builder()
+                                .collectionId(collectionId)
+                                .build()
+                );
+            } catch (ResourceAlreadyExistsException ignored) {
+            }
+        }
+    }
+
+    private void validarArchivoImagen(MultipartFile archivo) {
+        if (archivo == null || archivo.isEmpty()) {
+            throw new BusinessException("Debe enviar un archivo de imagen.");
+        }
+
+        String contentType = archivo.getContentType();
+        if (contentType == null || !contentType.toLowerCase().startsWith("image/")) {
+            throw new BusinessException("El archivo enviado debe ser una imagen válida.");
+        }
+    }
+
+    @Getter
+    public static class IndexFaceResult {
+        private final String faceId;
+        private final String collectionId;
+        private final String externalImageId;
+
+        public IndexFaceResult(String faceId, String collectionId, String externalImageId) {
+            this.faceId = faceId;
+            this.collectionId = collectionId;
+            this.externalImageId = externalImageId;
+        }
+    }
+
+    @Getter
+    public static class SearchFaceResult {
+        private final String faceId;
+        private final Float similarity;
+
+        public SearchFaceResult(String faceId, Float similarity) {
+            this.faceId = faceId;
+            this.similarity = similarity;
+        }
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\service\S3Service.java
+==============================
+
+package com.example.backend_sis.service;
+
+import com.example.backend_sis.exception.BusinessException;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
+
+import java.io.IOException;
+import java.time.Duration;
+import java.util.UUID;
+
+@Service
+@RequiredArgsConstructor
+public class S3Service {
+
+    private final S3Client s3Client;
+    private final S3Presigner s3Presigner;
+
+    @Value("${aws.s3.bucket}")
+    private String bucketName;
+
+    public UploadResult subirRostro(MultipartFile archivo, Long pacienteId) {
+        validarArchivoImagen(archivo);
+
+        String extension = obtenerExtension(archivo.getOriginalFilename());
+        String key = "pacientes/" + pacienteId + "/rostro/" + UUID.randomUUID() + extension;
+
+        try {
+            PutObjectRequest request = PutObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(key)
+                    .contentType(archivo.getContentType())
+                    .build();
+
+            s3Client.putObject(request, RequestBody.fromBytes(archivo.getBytes()));
+
+            return new UploadResult(bucketName, key);
+        } catch (IOException e) {
+            throw new BusinessException("No se pudo leer el archivo de rostro.");
+        } catch (Exception e) {
+            throw new BusinessException("No se pudo subir la imagen a S3: " + e.getMessage());
+        }
+    }
+
+    public String generarUrlPreviewTemporal(String bucket, String key) {
+        if (bucket == null || bucket.isBlank() || key == null || key.isBlank()) {
+            return null;
+        }
+
+        try {
+            GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+                    .bucket(bucket)
+                    .key(key)
+                    .build();
+
+            GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
+                    .getObjectRequest(getObjectRequest)
+                    .signatureDuration(Duration.ofMinutes(15))
+                    .build();
+
+            return s3Presigner.presignGetObject(presignRequest)
+                    .url()
+                    .toString();
+        } catch (Exception e) {
+            throw new BusinessException("No se pudo generar la URL temporal de preview: " + e.getMessage());
+        }
+    }
+
+    public void eliminarObjeto(String bucket, String key) {
+        if (bucket == null || bucket.isBlank() || key == null || key.isBlank()) {
+            return;
+        }
+
+        try {
+            DeleteObjectRequest request = DeleteObjectRequest.builder()
+                    .bucket(bucket)
+                    .key(key)
+                    .build();
+
+            s3Client.deleteObject(request);
+        } catch (Exception e) {
+            throw new BusinessException("No se pudo eliminar la imagen de S3: " + e.getMessage());
+        }
+    }
+
+    private void validarArchivoImagen(MultipartFile archivo) {
+        if (archivo == null || archivo.isEmpty()) {
+            throw new BusinessException("Debe enviar un archivo de imagen.");
+        }
+
+        String contentType = archivo.getContentType();
+        if (contentType == null || !contentType.toLowerCase().startsWith("image/")) {
+            throw new BusinessException("El archivo enviado debe ser una imagen válida.");
+        }
+    }
+
+    private String obtenerExtension(String filename) {
+        if (filename == null || !filename.contains(".")) {
+            return ".jpg";
+        }
+        return filename.substring(filename.lastIndexOf("."));
+    }
+
+    @Getter
+    public static class UploadResult {
+        private final String bucket;
+        private final String key;
+
+        public UploadResult(String bucket, String key) {
+            this.bucket = bucket;
+            this.key = key;
+        }
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\service\TurnoService.java
+==============================
+
+package com.example.backend_sis.service;
+
+import com.example.backend_sis.dto.*;
+import com.example.backend_sis.model.*;
+import com.example.backend_sis.repository.AgendaPermisoMedicoRepository;
+import com.example.backend_sis.repository.PacienteRepository;
+import com.example.backend_sis.repository.TurnoRepository;
+import com.example.backend_sis.repository.UsuarioRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Set;
+
+@Service
+@RequiredArgsConstructor
+public class TurnoService {
+
+    private static final Set<EstadoTurno> ESTADOS_VISIBLES_ADMIN = Set.of(
+            EstadoTurno.DISPONIBLE,
+            EstadoTurno.CITADO,
+            EstadoTurno.EN_ESPERA,
+            EstadoTurno.EN_ATENCION,
+            EstadoTurno.FINALIZADO,
+            EstadoTurno.ALTA,
+            EstadoTurno.AUSENTE,
+            EstadoTurno.CANCELADO,
+            EstadoTurno.REPROGRAMADO
+    );
+
+    private static final Set<EstadoTurno> ESTADOS_VISIBLES_MEDICO = Set.of(
+            EstadoTurno.EN_ESPERA,
+            EstadoTurno.EN_ATENCION,
+            EstadoTurno.FINALIZADO,
+            EstadoTurno.CITADO,
+            EstadoTurno.DISPONIBLE,
+            EstadoTurno.AUSENTE,
+            EstadoTurno.ALTA
+    );
+
+    private final TurnoRepository turnoRepository;
+    private final PacienteRepository pacienteRepository;
+    private final UsuarioRepository usuarioRepository;
+    private final AgendaPermisoMedicoRepository agendaPermisoMedicoRepository;
+    private final EpisodioService episodioService;
+
+    @Transactional
+    public TurnoComprobanteResponse asignarPaciente(Long turnoId, TurnoAsignarPacienteRequest request) {
+        Turno turno = turnoRepository.findById(turnoId)
+                .orElseThrow(() -> new RuntimeException("Turno no encontrado"));
+
+        if (turno.getEstadoTurno() != EstadoTurno.DISPONIBLE) {
+            throw new RuntimeException("Solo se puede asignar un paciente a un turno DISPONIBLE");
+        }
+
+        Paciente paciente = pacienteRepository.findById(request.getPacienteId())
+                .orElseThrow(() -> new RuntimeException("Paciente no encontrado"));
+
+        turno.setPaciente(paciente);
+        turno.setEstadoTurno(EstadoTurno.CITADO);
+        turno.setFechaReserva(LocalDateTime.now());
+        turno.setObservacion(request.getObservacion());
+
+        Turno guardado = turnoRepository.save(turno);
+        return mapComprobante(guardado);
+    }
+
+
+    @Transactional
+    public TurnoListItemResponse cambiarEstado(Long turnoId, EstadoTurno nuevoEstado, Long usuarioId) {
+        Turno turno = turnoRepository.findById(turnoId)
+                .orElseThrow(() -> new RuntimeException("Turno no encontrado"));
+
+        Usuario usuario = usuarioRepository.findById(usuarioId)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        validarCambioEstado(turno, nuevoEstado, usuario);
+
+        if (nuevoEstado == EstadoTurno.EN_ESPERA) {
+            Episodio episodio = episodioService.crearEpisodioConsultoriosDesdeTurno(
+                    turno.getPaciente().getId(),
+                    usuarioId
+            );
+            turno.setEpisodio(episodio);
+            turno.setFechaLlegada(LocalDateTime.now());
+            turno.setEstadoTurno(EstadoTurno.EN_ESPERA);
+            return mapTurno(turnoRepository.save(turno));
+        }
+
+        if (nuevoEstado == EstadoTurno.EN_ATENCION) {
+            episodioService.cambiarEstado(turno.getEpisodio().getId(), EstadoAtencion.EN_ATENCION, usuarioId);
+            turno.setEstadoTurno(EstadoTurno.EN_ATENCION);
+            return mapTurno(turnoRepository.save(turno));
+        }
+
+        if (nuevoEstado == EstadoTurno.FINALIZADO) {
+            episodioService.cambiarEstado(turno.getEpisodio().getId(), EstadoAtencion.FINALIZADO, usuarioId);
+            turno.setEstadoTurno(EstadoTurno.FINALIZADO);
+            return mapTurno(turnoRepository.save(turno));
+        }
+
+        if (nuevoEstado == EstadoTurno.ALTA) {
+            episodioService.cambiarEstado(turno.getEpisodio().getId(), EstadoAtencion.ALTA, usuarioId);
+            turno.setEstadoTurno(EstadoTurno.ALTA);
+            return mapTurno(turnoRepository.save(turno));
+        }
+
+        if (nuevoEstado == EstadoTurno.CANCELADO) {
+            turno.setEstadoTurno(EstadoTurno.CANCELADO);
+            turno.setPaciente(null);
+            turno.setFechaReserva(null);
+            turno.setObservacion("Turno cancelado");
+            turnoRepository.save(turno);
+
+            Turno reemplazoLibre = Turno.builder()
+                    .agenda(turno.getAgenda())
+                    .fecha(turno.getFecha())
+                    .horaDesde(turno.getHoraDesde())
+                    .horaHasta(turno.getHoraHasta())
+                    .estadoTurno(EstadoTurno.DISPONIBLE)
+                    .build();
+
+            turnoRepository.save(reemplazoLibre);
+
+            return mapTurno(turno);
+        }
+
+        turno.setEstadoTurno(nuevoEstado);
+        return mapTurno(turnoRepository.save(turno));
+    }
+
+    @Transactional(readOnly = true)
+    public TurnoComprobanteResponse obtenerComprobante(Long turnoId) {
+        Turno turno = turnoRepository.findById(turnoId)
+                .orElseThrow(() -> new RuntimeException("Turno no encontrado"));
+
+        if (turno.getPaciente() == null) {
+            throw new RuntimeException("El turno no tiene un paciente asignado");
+        }
+
+        return mapComprobante(turno);
+    }
+
+    @Transactional
+    public TurnoListItemResponse reprogramarTurno(Long turnoOrigenId, TurnoReprogramarRequest request) {
+        Turno turnoOrigen = turnoRepository.findById(turnoOrigenId)
+                .orElseThrow(() -> new RuntimeException("Turno origen no encontrado"));
+
+        Turno turnoDestino = turnoRepository.findById(request.getNuevoTurnoId())
+                .orElseThrow(() -> new RuntimeException("Turno destino no encontrado"));
+
+        Usuario usuario = usuarioRepository.findById(request.getUsuarioId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        if (usuario.getRol() != Usuario.Rol.ADMINISTRATIVO) {
+            throw new RuntimeException("Solo un ADMINISTRATIVO puede reprogramar turnos");
+        }
+
+        if (turnoOrigen.getEstadoTurno() != EstadoTurno.CITADO) {
+            throw new RuntimeException("Solo se pueden reprogramar turnos CITADOS");
+        }
+
+        if (turnoDestino.getEstadoTurno() != EstadoTurno.DISPONIBLE) {
+            throw new RuntimeException("El turno destino debe estar DISPONIBLE");
+        }
+
+        if (turnoOrigen.getPaciente() == null) {
+            throw new RuntimeException("El turno origen no tiene un paciente asignado");
+        }
+
+        Paciente paciente = turnoOrigen.getPaciente();
+        String observacion = turnoOrigen.getObservacion();
+
+        turnoOrigen.setEstadoTurno(EstadoTurno.REPROGRAMADO);
+        turnoOrigen.setPaciente(null);
+        turnoOrigen.setFechaReserva(null);
+        turnoOrigen.setObservacion("Reprogramado desde este bloque");
+        turnoRepository.save(turnoOrigen);
+
+        Turno reemplazoLibre = Turno.builder()
+                .agenda(turnoOrigen.getAgenda())
+                .fecha(turnoOrigen.getFecha())
+                .horaDesde(turnoOrigen.getHoraDesde())
+                .horaHasta(turnoOrigen.getHoraHasta())
+                .estadoTurno(EstadoTurno.DISPONIBLE)
+                .build();
+        turnoRepository.save(reemplazoLibre);
+
+        turnoDestino.setPaciente(paciente);
+        turnoDestino.setEstadoTurno(EstadoTurno.CITADO);
+        turnoDestino.setFechaReserva(LocalDateTime.now());
+        turnoDestino.setObservacion(observacion);
+
+        return mapTurno(turnoRepository.save(turnoDestino));
+    }
+
+    public List<TurnoListItemResponse> listarTurnosDelDiaAdmin(LocalDate fecha, EstadoTurno estado) {
+        LocalDate fechaConsulta = fecha != null ? fecha : LocalDate.now();
+
+        List<Turno> turnos;
+
+        if (estado != null) {
+            turnos = turnoRepository.findByFechaAndEstadoTurnoInOrderByHoraDesdeAsc(
+                    fechaConsulta,
+                    Set.of(estado)
+            );
+        } else {
+            turnos = turnoRepository.findByFechaAndEstadoTurnoInOrderByHoraDesdeAsc(
+                    fechaConsulta,
+                    ESTADOS_VISIBLES_ADMIN
+            );
+        }
+
+        return turnos.stream()
+                .map(this::mapTurno)
+                .toList();
+    }
+
+    public List<TurnoListItemResponse> listarTurnosFiltradosAdmin(Long agendaId, LocalDate fecha, EstadoTurno estado) {
+        if (agendaId == null) {
+            throw new RuntimeException("Debés informar la agenda");
+        }
+
+        LocalDate fechaConsulta = fecha != null ? fecha : LocalDate.now();
+
+        List<Turno> turnos;
+
+        if (estado != null) {
+            turnos = turnoRepository.findByAgenda_IdAndFechaAndEstadoTurnoOrderByHoraDesdeAsc(
+                    agendaId,
+                    fechaConsulta,
+                    estado
+            );
+        } else {
+            turnos = turnoRepository.findByAgenda_IdAndFechaOrderByHoraDesdeAsc(
+                    agendaId,
+                    fechaConsulta
+            );
+        }
+
+        return turnos.stream()
+                .map(this::mapTurno)
+                .toList();
+    }
+
+    public List<TurnoListItemResponse> listarTurnosDelDiaMedico(Long usuarioId, LocalDate fecha) {
+        Usuario usuario = usuarioRepository.findById(usuarioId)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        if (usuario.getRol() != Usuario.Rol.MEDICO) {
+            throw new RuntimeException("Solo un MEDICO puede consultar esta vista");
+        }
+
+        LocalDate fechaConsulta = fecha != null ? fecha : LocalDate.now();
+
+        return turnoRepository.findTurnosVisiblesPorMedicoYFecha(usuarioId, fechaConsulta)
+                .stream()
+                .filter(turno -> ESTADOS_VISIBLES_MEDICO.contains(turno.getEstadoTurno()))
+                .map(this::mapTurno)
+                .toList();
+    }
+
+    private void validarCambioEstado(Turno turno, EstadoTurno nuevoEstado, Usuario usuario) {
+        EstadoTurno actual = turno.getEstadoTurno();
+
+        if (nuevoEstado == EstadoTurno.EN_ESPERA) {
+            if (usuario.getRol() != Usuario.Rol.ADMINISTRATIVO) {
+                throw new RuntimeException("Solo un ADMINISTRATIVO puede registrar la llegada del paciente");
+            }
+            if (actual != EstadoTurno.CITADO) {
+                throw new RuntimeException("Solo se puede pasar a EN_ESPERA desde CITADO");
+            }
+            if (turno.getPaciente() == null) {
+                throw new RuntimeException("El turno no tiene paciente asignado");
+            }
+            return;
+        }
+
+        if (nuevoEstado == EstadoTurno.AUSENTE || nuevoEstado == EstadoTurno.CANCELADO) {
+            if (usuario.getRol() != Usuario.Rol.ADMINISTRATIVO) {
+                throw new RuntimeException("Solo un ADMINISTRATIVO puede cambiar a este estado");
+            }
+            if (actual != EstadoTurno.CITADO) {
+                throw new RuntimeException("Solo se puede cambiar a " + nuevoEstado + " desde CITADO");
+            }
+            return;
+        }
+
+        if (nuevoEstado == EstadoTurno.EN_ATENCION || nuevoEstado == EstadoTurno.FINALIZADO) {
+            if (usuario.getRol() != Usuario.Rol.MEDICO) {
+                throw new RuntimeException("Solo un MEDICO puede cambiar a este estado");
+            }
+            validarPermisoAgenda(turno.getAgenda().getId(), usuario.getId());
+
+            boolean transicionValida =
+                    (actual == EstadoTurno.EN_ESPERA && nuevoEstado == EstadoTurno.EN_ATENCION)
+                            || (actual == EstadoTurno.EN_ATENCION && nuevoEstado == EstadoTurno.FINALIZADO)
+                            || (actual == EstadoTurno.FINALIZADO && nuevoEstado == EstadoTurno.EN_ATENCION);
+
+            if (!transicionValida) {
+                throw new RuntimeException("Cambio de estado no permitido");
+            }
+            return;
+        }
+
+        if (nuevoEstado == EstadoTurno.ALTA) {
+            if (usuario.getRol() != Usuario.Rol.ADMINISTRATIVO) {
+                throw new RuntimeException("Solo un ADMINISTRATIVO puede cerrar la cita");
+            }
+            if (actual != EstadoTurno.FINALIZADO) {
+                throw new RuntimeException("La cita finalizada solo se puede realizar desde FINALIZADO");
+            }
+            return;
+        }
+
+        throw new RuntimeException("Cambio de estado no permitido");
+    }
+
+    private void validarPermisoAgenda(Long agendaId, Long usuarioId) {
+        boolean tienePermiso = agendaPermisoMedicoRepository.existsByAgenda_IdAndUsuario_IdAndActivoTrue(agendaId, usuarioId);
+        if (!tienePermiso) {
+            throw new RuntimeException("El médico no tiene permisos sobre esta agenda");
+        }
+    }
+
+    private TurnoListItemResponse mapTurno(Turno turno) {
+        List<String> medicosAgenda = turno.getAgenda().getPermisosMedicos()
+                .stream()
+                .filter(permiso -> Boolean.TRUE.equals(permiso.getActivo()))
+                .map(permiso -> {
+                    Usuario medico = permiso.getUsuario();
+                    String nombre = medico.getNombre() != null ? medico.getNombre() : "";
+                    String apellido = medico.getApellido() != null ? medico.getApellido() : "";
+                    return (apellido + ", " + nombre).trim().replaceAll("^,\\s*", "");
+                })
+                .toList();
+
+        return TurnoListItemResponse.builder()
+                .turnoId(turno.getId())
+                .agendaId(turno.getAgenda().getId())
+                .agendaNombre(turno.getAgenda().getNombre())
+                .especialidad(turno.getAgenda().getEspecialidad())
+                .fecha(turno.getFecha())
+                .horaDesde(turno.getHoraDesde())
+                .horaHasta(turno.getHoraHasta())
+                .estadoTurno(turno.getEstadoTurno())
+                .pacienteId(turno.getPaciente() != null ? turno.getPaciente().getId() : null)
+                .pacienteDni(turno.getPaciente() != null ? turno.getPaciente().getDni() : null)
+                .pacienteNombre(turno.getPaciente() != null ? turno.getPaciente().getNombre() : null)
+                .pacienteApellido(turno.getPaciente() != null ? turno.getPaciente().getApellido() : null)
+                .episodioId(turno.getEpisodio() != null ? turno.getEpisodio().getId() : null)
+                .fechaReserva(turno.getFechaReserva())
+                .fechaLlegada(turno.getFechaLlegada())
+                .observacion(turno.getObservacion())
+                .medicosAgenda(medicosAgenda)
+                .build();
+    }
+
+    private TurnoComprobanteResponse mapComprobante(Turno turno) {
+        List<String> medicosAgenda = turno.getAgenda().getPermisosMedicos()
+                .stream()
+                .filter(permiso -> Boolean.TRUE.equals(permiso.getActivo()))
+                .map(permiso -> {
+                    Usuario medico = permiso.getUsuario();
+                    String nombre = medico.getNombre() != null ? medico.getNombre() : "";
+                    String apellido = medico.getApellido() != null ? medico.getApellido() : "";
+                    return (apellido + ", " + nombre).trim().replaceAll("^,\\s*", "");
+                })
+                .toList();
+
+        return TurnoComprobanteResponse.builder()
+                .turnoId(turno.getId())
+                .agendaNombre(turno.getAgenda().getNombre())
+                .especialidad(turno.getAgenda().getEspecialidad())
+                .fecha(turno.getFecha())
+                .horaDesde(turno.getHoraDesde())
+                .horaHasta(turno.getHoraHasta())
+                .pacienteDni(turno.getPaciente().getDni())
+                .pacienteNombreCompleto(turno.getPaciente().getApellido() + ", " + turno.getPaciente().getNombre())
+                .observacion(turno.getObservacion())
+                .medicosAgenda(medicosAgenda)
+                .build();
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\service\UsuarioDetailsService.java
+==============================
+
+package com.example.backend_sis.service;
+
+import com.example.backend_sis.model.Usuario;
+import com.example.backend_sis.repository.UsuarioRepository;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.*;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+public class UsuarioDetailsService implements UserDetailsService {
+
+    private final UsuarioRepository usuarioRepository;
+
+    public UsuarioDetailsService(UsuarioRepository usuarioRepository) {
+        this.usuarioRepository = usuarioRepository;
+    }
+
+    @Override
+    public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+        // username = email
+        Usuario u = usuarioRepository.findByEmail(username)
+                .orElseThrow(() -> new UsernameNotFoundException("Usuario no encontrado"));
+
+        // Spring espera roles con prefijo ROLE_
+        String role = "ROLE_" + u.getRol().name();
+
+        return new org.springframework.security.core.userdetails.User(
+                u.getEmail(),
+                u.getPassword(),
+                List.of(new SimpleGrantedAuthority(role))
+        );
+    }
+}
+
+==============================
+ARCHIVO: C:\Users\brnit\Documents\Sistema integral sanitario - Tesis\backend-sis\backend-sis\src\main\java\com\example\backend_sis\service\UsuarioService.java
+==============================
+
+package com.example.backend_sis.service;
+
+import com.example.backend_sis.dto.*;
+import com.example.backend_sis.model.Usuario;
+import com.example.backend_sis.repository.UsuarioRepository;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.security.SecureRandom;
+import java.util.List;
+
+@Service
+public class UsuarioService {
+
+    private static final String CARACTERES_PASSWORD = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+
+    private final UsuarioRepository usuarioRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final SecureRandom secureRandom = new SecureRandom();
+
+    public UsuarioService(UsuarioRepository usuarioRepository, PasswordEncoder passwordEncoder) {
+        this.usuarioRepository = usuarioRepository;
+        this.passwordEncoder = passwordEncoder;
+    }
+
+    @Transactional
+    public Usuario registrarUsuario(UsuarioRequest request) {
+        validarRolCreable(request.rol);
+        validarDuplicados(request.cuit, request.email, null);
+
+        Usuario usuario = new Usuario();
+        usuario.setNombre(request.nombre);
+        usuario.setApellido(request.apellido);
+        usuario.setCuit(request.cuit);
+        usuario.setEmail(request.email);
+        usuario.setRol(Usuario.Rol.valueOf(request.rol.toUpperCase()));
+        usuario.setPassword(passwordEncoder.encode(request.password));
+        usuario.setDebeCambiarPassword(false);
+
+        return usuarioRepository.save(usuario);
+    }
+
+    public List<UsuarioMedicoOptionResponse> listarMedicos() {
+        return usuarioRepository.findByRol(Usuario.Rol.MEDICO)
+                .stream()
+                .map(u -> UsuarioMedicoOptionResponse.builder()
+                        .id(u.getId())
+                        .nombreCompleto((u.getNombre() == null ? "" : u.getNombre()) +
+                                (u.getApellido() == null ? "" : " " + u.getApellido()))
+                        .email(u.getEmail())
+                        .build())
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<UsuarioAdminListResponse> listarUsuariosAdmin() {
+        return usuarioRepository.findAll()
+                .stream()
+                .map(this::toAdminResponse)
+                .toList();
+    }
+
+    @Transactional
+    public UsuarioAdminListResponse actualizarUsuarioAdmin(Long usuarioId, UsuarioAdminUpdateRequest request) {
+        validarRolCreable(request.getRol());
+        validarDuplicados(request.getCuit(), request.getEmail(), usuarioId);
+
+        Usuario usuario = usuarioRepository.findById(usuarioId)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        if (usuario.getRol() == Usuario.Rol.ADMIN) {
+            throw new RuntimeException("No se permite modificar usuarios ADMIN desde este módulo.");
+        }
+
+        usuario.setNombre(request.getNombre());
+        usuario.setApellido(request.getApellido());
+        usuario.setCuit(request.getCuit());
+        usuario.setEmail(request.getEmail());
+        usuario.setRol(Usuario.Rol.valueOf(request.getRol().toUpperCase()));
+
+        return toAdminResponse(usuarioRepository.save(usuario));
+    }
+
+    @Transactional
+    public void cambiarPassword(String email, String actual, String nueva) {
+        Usuario usuario = usuarioRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        if (!passwordEncoder.matches(actual, usuario.getPassword())) {
+            throw new RuntimeException("La contraseña actual es incorrecta");
+        }
+
+        usuario.setPassword(passwordEncoder.encode(nueva));
+        usuario.setDebeCambiarPassword(false);
+        usuarioRepository.save(usuario);
+    }
+
+    @Transactional
+    public void cambiarPasswordAdmin(Long usuarioId, String nuevaPassword) {
+        if (nuevaPassword == null || nuevaPassword.isBlank()) {
+            throw new RuntimeException("Debe informar la nueva contraseña.");
+        }
+
+        Usuario usuario = usuarioRepository.findById(usuarioId)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        if (usuario.getRol() == Usuario.Rol.ADMIN) {
+            throw new RuntimeException("No se permite cambiar contraseñas de usuarios ADMIN desde este módulo.");
+        }
+
+        usuario.setPassword(passwordEncoder.encode(nuevaPassword));
+        usuario.setDebeCambiarPassword(false);
+        usuarioRepository.save(usuario);
+    }
+
+    @Transactional
+    public UsuarioAdminResetPasswordResponse reiniciarPasswordAdmin(Long usuarioId) {
+        Usuario usuario = usuarioRepository.findById(usuarioId)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        if (usuario.getRol() == Usuario.Rol.ADMIN) {
+            throw new RuntimeException("No se permite reiniciar contraseñas de usuarios ADMIN desde este módulo.");
+        }
+
+        String passwordTemporal = generarPasswordTemporal(10);
+        usuario.setPassword(passwordEncoder.encode(passwordTemporal));
+        usuario.setDebeCambiarPassword(true);
+        usuarioRepository.save(usuario);
+
+        return UsuarioAdminResetPasswordResponse.builder()
+                .usuarioId(usuario.getId())
+                .email(usuario.getEmail())
+                .passwordTemporal(passwordTemporal)
+                .debeCambiarPassword(true)
+                .build();
+    }
+
+    private void validarRolCreable(String rol) {
+        if (rol == null || rol.isBlank()) {
+            throw new RuntimeException("El rol es obligatorio.");
+        }
+
+        String rolNormalizado = rol.toUpperCase();
+        if (!rolNormalizado.equals("MEDICO") && !rolNormalizado.equals("ADMINISTRATIVO")) {
+            throw new RuntimeException("Solo se permite crear o modificar usuarios MEDICO o ADMINISTRATIVO.");
+        }
+    }
+
+    private void validarDuplicados(String cuit, String email, Long usuarioIdActual) {
+        usuarioRepository.findByCuit(cuit).ifPresent(u -> {
+            if (usuarioIdActual == null || !u.getId().equals(usuarioIdActual)) {
+                throw new RuntimeException("CUIT ya existente");
+            }
+        });
+
+        usuarioRepository.findByEmail(email).ifPresent(u -> {
+            if (usuarioIdActual == null || !u.getId().equals(usuarioIdActual)) {
+                throw new RuntimeException("Email ya existente");
+            }
+        });
+    }
+
+    private UsuarioAdminListResponse toAdminResponse(Usuario usuario) {
+        return UsuarioAdminListResponse.builder()
+                .id(usuario.getId())
+                .nombre(usuario.getNombre())
+                .apellido(usuario.getApellido())
+                .cuit(usuario.getCuit())
+                .email(usuario.getEmail())
+                .rol(usuario.getRol() != null ? usuario.getRol().name() : null)
+                .debeCambiarPassword(Boolean.TRUE.equals(usuario.getDebeCambiarPassword()))
+                .build();
+    }
+
+    private String generarPasswordTemporal(int longitud) {
+        StringBuilder sb = new StringBuilder(longitud);
+        for (int i = 0; i < longitud; i++) {
+            int index = secureRandom.nextInt(CARACTERES_PASSWORD.length());
+            sb.append(CARACTERES_PASSWORD.charAt(index));
+        }
+        return sb.toString();
+    }
+
+    public List<Usuario> listarUsuariosSinAdmin() {
+        return usuarioRepository.findByRolNot(Usuario.Rol.ADMIN);
+    }
+}

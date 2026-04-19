@@ -71,6 +71,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/reconocimiento/rostros/admin").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/reconocimiento/rostros/*").hasRole("ADMIN")
 
+                        .requestMatchers(HttpMethod.POST, "/api/huellas/registrar").hasAnyRole("ADMINISTRATIVO", "ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/huellas/buscar").hasAnyRole("ADMINISTRATIVO", "ADMIN", "MEDICO")
+                        .requestMatchers(HttpMethod.GET, "/api/huellas/paciente/*").hasAnyRole("ADMINISTRATIVO", "ADMIN", "MEDICO")
+                        .requestMatchers(HttpMethod.DELETE, "/api/huellas/*").hasRole("ADMIN")
+
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
