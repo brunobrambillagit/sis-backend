@@ -10,6 +10,8 @@ import com.machinezoo.sourceafis.FingerprintTemplate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import java.util.Base64;
+
 
 import java.util.Date;
 import java.util.List;
@@ -44,6 +46,7 @@ public class HuellaService {
                 request.getWidth(),
                 request.getHeight(),
                 request.getDpi()
+
         );
 
         Date ahora = new Date();
@@ -60,6 +63,7 @@ public class HuellaService {
                 .activo(true)
                 .fechaCaptura(ahora)
                 .fechaVinculoPaciente(ahora)
+                .imagenPreview(rawImage)
                 .build();
 
         ReconocimientoHuella guardada = reconocimientoHuellaRepository.save(entidad);
@@ -134,6 +138,14 @@ public class HuellaService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public List<HuellaAdminItemResponse> listarHuellasAdmin() {
+        return reconocimientoHuellaRepository.findAll()
+                .stream()
+                .map(this::toAdminItemResponse)
+                .toList();
+    }
+
     @Transactional
     public void eliminarHuella(Long reconocimientoHuellaId) {
         ReconocimientoHuella huella = reconocimientoHuellaRepository.findById(reconocimientoHuellaId)
@@ -180,6 +192,35 @@ public class HuellaService {
                 .proveedor(h.getProveedor())
                 .activo(h.getActivo())
                 .fechaCaptura(h.getFechaCaptura())
+                .build();
+    }
+
+    private HuellaAdminItemResponse toAdminItemResponse(ReconocimientoHuella h) {
+        Paciente paciente = h.getPaciente();
+
+        String imagenPreviewBase64 = h.getImagenPreview() != null
+                ? Base64.getEncoder().encodeToString(h.getImagenPreview())
+                : null;
+
+        return HuellaAdminItemResponse.builder()
+                .id(h.getId())
+                .pacienteId(paciente != null ? paciente.getId() : null)
+                .pacienteDni(paciente != null ? paciente.getDni() : null)
+                .pacienteNombreCompleto(
+                        paciente != null
+                                ? ((paciente.getApellido() == null ? "" : paciente.getApellido()) + ", "
+                                + (paciente.getNombre() == null ? "" : paciente.getNombre()))
+                                : null
+                )
+                .dedo(h.getDedo())
+                .width(h.getAnchoImagen())
+                .height(h.getAltoImagen())
+                .dpi(h.getDpi())
+                .quality(h.getCalidadCaptura())
+                .proveedor(h.getProveedor())
+                .activo(h.getActivo())
+                .fechaCaptura(h.getFechaCaptura())
+                .imagenPreviewBase64(imagenPreviewBase64)
                 .build();
     }
 }

@@ -65,6 +65,11 @@ public class ReconocimientoHuella {
     @Column(name = "fecha_vinculo_paciente", nullable = false)
     private Date fechaVinculoPaciente;
 
+    @Lob
+    @Basic(fetch = FetchType.LAZY)
+    @Column(name = "imagen_preview", columnDefinition = "LONGBLOB")
+    private byte[] imagenPreview;
+
     @PrePersist
     public void prePersist() {
         Date ahora = new Date();

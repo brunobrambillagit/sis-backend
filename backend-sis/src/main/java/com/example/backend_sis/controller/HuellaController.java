@@ -33,6 +33,11 @@ public class HuellaController {
         return huellaService.listarHuellasPorPaciente(pacienteId);
     }
 
+    @GetMapping("/admin")
+    public List<HuellaAdminItemResponse> listarHuellasAdmin() {
+        return huellaService.listarHuellasAdmin();
+    }
+
     @DeleteMapping("/{reconocimientoHuellaId}")
     public ResponseEntity<String> eliminarHuella(@PathVariable Long reconocimientoHuellaId) {
         huellaService.eliminarHuella(reconocimientoHuellaId);

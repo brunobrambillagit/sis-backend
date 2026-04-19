@@ -75,6 +75,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/huellas/buscar").hasAnyRole("ADMINISTRATIVO", "ADMIN", "MEDICO")
                         .requestMatchers(HttpMethod.GET, "/api/huellas/paciente/*").hasAnyRole("ADMINISTRATIVO", "ADMIN", "MEDICO")
                         .requestMatchers(HttpMethod.DELETE, "/api/huellas/*").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/huellas/admin").hasRole("ADMIN")
+
 
                         .anyRequest().authenticated()
                 )
